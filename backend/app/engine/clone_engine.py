@@ -105,6 +105,21 @@ class CloneEngine:
     def request_resume(self):
         self._paused = False
 
+    async def _resolve_peer(self, client, telegram_id: int):
+        """Resolve entity tentando com e sem prefixo -100."""
+        attempts = [telegram_id]
+        if telegram_id > 0:
+            attempts.append(int(f"-100{telegram_id}"))
+        elif str(telegram_id).startswith("-100"):
+            attempts.append(int(str(telegram_id).replace("-100", "", 1)))
+
+        for attempt in attempts:
+            try:
+                return await client.get_entity(attempt)
+            except Exception:
+                continue
+        raise ValueError(f"Não foi possível resolver a entidade (ID: {telegram_id})")
+
     async def run(self):
         """Main entry point — runs the clone job to completion."""
         async with self.db_factory() as db:
@@ -143,8 +158,9 @@ class CloneEngine:
                 )
 
                 # Get source and dest entities via Telethon
-                source_peer = await client.get_entity(source_entity.telegram_id)
-                dest_peer = await client.get_entity(dest_entity.telegram_id)
+                # Tenta múltiplos formatos (com e sem -100) pra resolver
+                source_peer = await self._resolve_peer(client, source_entity.telegram_id)
+                dest_peer = await self._resolve_peer(client, dest_entity.telegram_id)
 
                 await log(db, "info",
                     f"Origem: {source_entity.title} | Destino: {dest_entity.title} | Modo: {job.mode}",
