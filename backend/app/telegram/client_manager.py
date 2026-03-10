@@ -45,6 +45,9 @@ def _create_client(phone: str) -> TelegramClient:
         _session_path(phone),
         settings.telegram_api_id,
         settings.telegram_api_hash,
+        request_retries=5,
+        connection_retries=5,
+        retry_delay=1,
     )
 
 

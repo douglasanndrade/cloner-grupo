@@ -7,6 +7,7 @@ import os
 import time
 from datetime import datetime, timezone
 from collections import defaultdict
+from functools import partial
 
 from telethon import TelegramClient
 from telethon.tl.types import (
@@ -492,9 +493,15 @@ class CloneEngine:
                             job_id=self.job_id)
                     )
 
+            # Use larger part size for big files (512KB instead of default 64KB)
+            dl_kwargs = {}
+            if total_size > 50 * 1024 * 1024:  # > 50MB
+                dl_kwargs["part_size_kb"] = 512
+
             downloaded = await client.download_media(
                 msg, file=file_path,
                 progress_callback=dl_progress if total_size > 10 * 1024 * 1024 else None,
+                **dl_kwargs,
             )
             if not downloaded:
                 await self._save_item(db, job, msg, "error", error_msg="Download falhou - arquivo vazio")
@@ -532,13 +539,27 @@ class CloneEngine:
                             job_id=self.job_id)
                     )
 
-            result = await client.send_file(
-                dest_peer,
-                downloaded,
-                caption=caption,
-                force_document=media_type == "document",
-                progress_callback=ul_progress if file_size_mb > 10 else None,
-            )
+            # For large files, upload with bigger part size first
+            if file_size_mb > 50:
+                uploaded = await client.upload_file(
+                    downloaded,
+                    part_size_kb=512,
+                    progress_callback=ul_progress,
+                )
+                result = await client.send_file(
+                    dest_peer,
+                    uploaded,
+                    caption=caption,
+                    force_document=media_type == "document",
+                )
+            else:
+                result = await client.send_file(
+                    dest_peer,
+                    downloaded,
+                    caption=caption,
+                    force_document=media_type == "document",
+                    progress_callback=ul_progress if file_size_mb > 10 else None,
+                )
             await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
             await self._update_progress(db, job, "success")
             await log(db, "success",
