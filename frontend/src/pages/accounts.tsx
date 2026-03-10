@@ -60,6 +60,7 @@ export function AccountsPage() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [statusChecking, setStatusChecking] = useState<Record<number, boolean>>({})
+  const [reconnecting, setReconnecting] = useState<Record<number, boolean>>({})
 
   const checkAllStatuses = (accountsList: TelegramAccount[]) => {
     for (const acc of accountsList) {
@@ -89,6 +90,27 @@ export function AccountsPage() {
       })
       .catch(() => {/* keep mock */})
   }, [])
+
+  const handleReconnect = async (account: TelegramAccount) => {
+    setReconnecting((prev) => ({ ...prev, [account.id]: true }))
+    try {
+      const statusRes = await accountsApi.checkStatus(account.id)
+      setAccounts((prev) =>
+        prev.map((a) => a.id === account.id ? { ...a, is_active: statusRes.data.is_active, is_premium: statusRes.data.is_premium } : a)
+      )
+      if (!statusRes.data.is_active) {
+        // Session file is gone or invalid — need to re-login
+        setLoginForm((prev) => ({ ...prev, phone: account.phone }))
+        setShowLoginDialog(true)
+      }
+    } catch {
+      // Failed to reconnect — open login dialog with phone pre-filled
+      setLoginForm((prev) => ({ ...prev, phone: account.phone }))
+      setShowLoginDialog(true)
+    } finally {
+      setReconnecting((prev) => ({ ...prev, [account.id]: false }))
+    }
+  }
 
   const handleStartLogin = async () => {
     setLoginLoading(true)
@@ -222,7 +244,7 @@ export function AccountsPage() {
               <p className="font-medium text-error">Sessao desconectada detectada</p>
               <p className="text-muted-foreground mt-1">
                 {accounts.filter((a) => !a.is_active && !statusChecking[a.id]).map((a) => a.phone).join(', ')}{' '}
-                — a sessao expirou ou foi desconectada. Clique em <b>Adicionar Conta</b> e faca login novamente com o mesmo numero para reconectar.
+                — a sessao expirou ou foi desconectada. Clique em <b>Reconectar</b> para tentar restabelecer a conexao.
               </p>
             </div>
           </CardContent>
@@ -301,6 +323,22 @@ export function AccountsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-3">
+                    {!account.is_active && !statusChecking[account.id] && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-error/30 text-error hover:bg-error/10"
+                        onClick={() => handleReconnect(account)}
+                        disabled={reconnecting[account.id]}
+                      >
+                        {reconnecting[account.id] ? (
+                          <RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                        )}
+                        Reconectar
+                      </Button>
+                    )}
                     <div className="flex items-center gap-2">
                       <Label htmlFor={`premium-${account.id}`} className="text-xs">
                         Premium

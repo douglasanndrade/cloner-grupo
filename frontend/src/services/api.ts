@@ -137,6 +137,9 @@ export const accountsApi = {
 
   checkStatus: (id: number) =>
     request<ApiResponse<{ is_active: boolean; is_premium: boolean }>>(`/accounts/${id}/status`),
+
+  listDialogs: (id: number) =>
+    request<ApiResponse<{ id: number; telegram_id: number; title: string; username: string | null; type: string; members_count: number | null }[]>>(`/accounts/${id}/dialogs`),
 }
 
 // ============================================================

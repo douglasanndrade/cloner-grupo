@@ -10,12 +10,13 @@ import {
   Crown,
   Forward,
   Download,
+  List,
+  Users,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import {
   Select,
@@ -24,9 +25,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Badge } from '@/components/ui/badge'
 import { accountsApi, entitiesApi, jobsApi } from '@/services/api'
 import type { TelegramAccount, TelegramEntity, CloneMode } from '@/types'
 import { cn } from '@/lib/utils'
+
+interface TelegramDialog {
+  id: number
+  telegram_id: number
+  title: string
+  username: string | null
+  type: string
+  members_count: number | null
+}
 
 export function NewJobPage() {
   const navigate = useNavigate()
@@ -71,7 +90,59 @@ export function NewJobPage() {
   const [verifying, setVerifying] = useState(false)
   const [verifyError, setVerifyError] = useState('')
 
+  // Group picker
+  const [dialogs, setDialogs] = useState<TelegramDialog[]>([])
+  const [loadingDialogs, setLoadingDialogs] = useState(false)
+  const [dialogsError, setDialogsError] = useState('')
+  const [showSourcePicker, setShowSourcePicker] = useState(false)
+  const [showDestPicker, setShowDestPicker] = useState(false)
+  const [dialogSearch, setDialogSearch] = useState('')
+
   const selectedAccount = accounts.find((a) => String(a.id) === accountId)
+
+  const loadDialogs = async () => {
+    if (!accountId) return
+    setLoadingDialogs(true)
+    setDialogsError('')
+    try {
+      const res = await accountsApi.listDialogs(Number(accountId))
+      setDialogs(res.data)
+    } catch (err) {
+      setDialogsError(err instanceof Error ? err.message : 'Erro ao carregar grupos')
+    } finally {
+      setLoadingDialogs(false)
+    }
+  }
+
+  const openSourcePicker = () => {
+    if (dialogs.length === 0) loadDialogs()
+    setDialogSearch('')
+    setShowSourcePicker(true)
+  }
+
+  const openDestPicker = () => {
+    if (dialogs.length === 0) loadDialogs()
+    setDialogSearch('')
+    setShowDestPicker(true)
+  }
+
+  const selectDialog = (d: TelegramDialog, target: 'source' | 'dest') => {
+    const identifier = String(d.telegram_id)
+    if (target === 'source') {
+      setSourceIdentifier(identifier)
+      setShowSourcePicker(false)
+    } else {
+      setDestIdentifier(identifier)
+      setShowDestPicker(false)
+    }
+  }
+
+  const filteredDialogs = dialogs.filter((d) => {
+    const q = dialogSearch.toLowerCase()
+    return d.title.toLowerCase().includes(q) ||
+      (d.username && d.username.toLowerCase().includes(q)) ||
+      String(d.telegram_id).includes(q)
+  })
 
   useEffect(() => {
     accountsApi.list()
@@ -300,6 +371,15 @@ export function NewJobPage() {
                 <Button
                   variant="outline"
                   size="icon"
+                  onClick={openSourcePicker}
+                  disabled={!accountId}
+                  title="Selecionar grupo"
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
                   onClick={handleResolveSource}
                   disabled={resolvingSource || !sourceIdentifier || !accountId}
                   title="Verificar"
@@ -368,6 +448,15 @@ export function NewJobPage() {
                   value={destIdentifier}
                   onChange={(e) => setDestIdentifier(e.target.value)}
                 />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={openDestPicker}
+                  disabled={!accountId}
+                  title="Selecionar grupo"
+                >
+                  <List className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="outline"
                   size="icon"
@@ -596,6 +685,90 @@ export function NewJobPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Group Picker Dialog */}
+      {(showSourcePicker || showDestPicker) && (
+        <Dialog open onOpenChange={() => { setShowSourcePicker(false); setShowDestPicker(false) }}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>
+                Selecionar {showSourcePicker ? 'Origem' : 'Destino'}
+              </DialogTitle>
+              <DialogDescription>
+                Grupos e canais da conta selecionada
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              <Input
+                placeholder="Buscar por nome, @username ou ID..."
+                value={dialogSearch}
+                onChange={(e) => setDialogSearch(e.target.value)}
+                autoFocus
+              />
+
+              {loadingDialogs && (
+                <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Carregando grupos...</span>
+                </div>
+              )}
+
+              {dialogsError && (
+                <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {dialogsError}
+                </div>
+              )}
+
+              {!loadingDialogs && dialogs.length > 0 && (
+                <ScrollArea className="h-[350px]">
+                  <div className="space-y-1">
+                    {filteredDialogs.map((d) => (
+                      <button
+                        key={d.telegram_id}
+                        className="w-full flex items-center gap-3 rounded-lg p-3 text-left hover:bg-surface-hover transition-colors"
+                        onClick={() => selectDialog(d, showSourcePicker ? 'source' : 'dest')}
+                      >
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm shrink-0">
+                          {d.title[0] || '#'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{d.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-mono">{d.telegram_id}</span>
+                            {d.username && <span className="ml-2">@{d.username}</span>}
+                            {d.members_count && <span className="ml-2">{d.members_count.toLocaleString('pt-BR')} membros</span>}
+                          </p>
+                        </div>
+                        <Badge variant={d.type === 'channel' ? 'info' : 'secondary'} className="shrink-0">
+                          {d.type === 'channel' ? 'Canal' : 'Grupo'}
+                        </Badge>
+                      </button>
+                    ))}
+                    {filteredDialogs.length === 0 && (
+                      <p className="text-center text-sm text-muted-foreground py-8">
+                        Nenhum grupo encontrado
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+              )}
+
+              {!loadingDialogs && dialogs.length === 0 && !dialogsError && (
+                <div className="flex flex-col items-center py-8 text-muted-foreground">
+                  <Users className="h-8 w-8 mb-2" />
+                  <p className="text-sm">Nenhum grupo carregado</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={loadDialogs}>
+                    <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                    Carregar Grupos
+                  </Button>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

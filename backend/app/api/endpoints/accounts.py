@@ -90,6 +90,42 @@ async def check_status(account_id: int, db: AsyncSession = Depends(get_db)):
         return {"data": {"is_active": False, "is_premium": account.is_premium}}
 
 
+@router.get("/{account_id}/dialogs")
+async def list_dialogs(account_id: int, db: AsyncSession = Depends(get_db)):
+    """List all groups/channels the account is a member of."""
+    account = await db.get(TelegramAccount, account_id)
+    if not account:
+        raise HTTPException(404, "Conta não encontrada")
+
+    try:
+        client = await ensure_connected(account.phone)
+        from telethon.tl.types import Channel, Chat
+        dialogs = []
+        async for d in client.iter_dialogs():
+            entity = d.entity
+            if isinstance(entity, Channel):
+                dialogs.append({
+                    "id": entity.id,
+                    "telegram_id": int(f"-100{entity.id}"),
+                    "title": entity.title or "",
+                    "username": getattr(entity, "username", None),
+                    "type": "channel" if entity.broadcast else "group",
+                    "members_count": getattr(entity, "participants_count", None),
+                })
+            elif isinstance(entity, Chat):
+                dialogs.append({
+                    "id": entity.id,
+                    "telegram_id": -entity.id,
+                    "title": entity.title or "",
+                    "username": None,
+                    "type": "group",
+                    "members_count": getattr(entity, "participants_count", None),
+                })
+        return {"data": dialogs}
+    except Exception as e:
+        raise HTTPException(500, f"Erro ao listar grupos: {str(e)}")
+
+
 @router.delete("/{account_id}", response_model=ApiResponse[None])
 async def remove_account(account_id: int, db: AsyncSession = Depends(get_db)):
     account = await db.get(TelegramAccount, account_id)

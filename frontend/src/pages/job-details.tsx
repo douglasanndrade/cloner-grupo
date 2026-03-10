@@ -28,7 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { JobStatusBadge, ItemStatusBadge, LogLevelBadge } from '@/components/ui/status-badge'
-import { jobsApi, logsApi, paymentsApi } from '@/services/api'
+import { jobsApi, logsApi, paymentsApi, accountsApi } from '@/services/api'
 import { useJobLogs } from '@/hooks/use-websocket'
 import { formatNumber, formatBytes, formatDuration } from '@/lib/utils'
 import type { CloneJob, CloneJobItem, LogEntry } from '@/types'
@@ -69,6 +69,8 @@ export function JobDetailsPage() {
   const [items, setItems] = useState<CloneJobItem[]>(mockItems)
   const [historicLogs, setHistoricLogs] = useState<LogEntry[]>(mockLogs)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [reconnecting, setReconnecting] = useState(false)
+  const [reconnectResult, setReconnectResult] = useState<'success' | 'failed' | null>(null)
 
   const { logs: realtimeLogs, connected } = useJobLogs(jobId)
 
@@ -158,6 +160,23 @@ export function JobDetailsPage() {
     }
   }
 
+  const handleReconnect = async () => {
+    setReconnecting(true)
+    setReconnectResult(null)
+    try {
+      const res = await accountsApi.checkStatus(job.account_id)
+      if (res.data.is_active) {
+        setReconnectResult('success')
+      } else {
+        setReconnectResult('failed')
+      }
+    } catch {
+      setReconnectResult('failed')
+    } finally {
+      setReconnecting(false)
+    }
+  }
+
   const handleCloneAgain = () => {
     // Usa telegram_id numérico em vez do título pra garantir resolução correta
     const source = job.source_telegram_id ? String(job.source_telegram_id) : job.source_title
@@ -224,10 +243,16 @@ export function JobDetailsPage() {
             </Button>
           )}
           {job.status === 'paused' && (
-            <Button variant="success" onClick={() => handleAction('resume')} disabled={!!actionLoading}>
-              {actionLoading === 'resume' ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
-              Continuar
-            </Button>
+            <>
+              <Button variant="outline" onClick={handleReconnect} disabled={reconnecting || !!actionLoading}>
+                {reconnecting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Wifi className="mr-2 h-4 w-4" />}
+                Reconectar
+              </Button>
+              <Button variant="success" onClick={() => handleAction('resume')} disabled={!!actionLoading}>
+                {actionLoading === 'resume' ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                Continuar
+              </Button>
+            </>
           )}
           {(job.status === 'running' || job.status === 'paused') && (
             <Button variant="destructive" onClick={() => handleAction('cancel')} disabled={!!actionLoading}>
@@ -239,6 +264,12 @@ export function JobDetailsPage() {
             <Button variant="outline" onClick={() => handleAction('reprocess')} disabled={!!actionLoading}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Reprocessar Erros
+            </Button>
+          )}
+          {job.status === 'failed' && (
+            <Button variant="outline" onClick={handleReconnect} disabled={reconnecting || !!actionLoading}>
+              {reconnecting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Wifi className="mr-2 h-4 w-4" />}
+              Reconectar
             </Button>
           )}
           {(job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') && (
@@ -271,6 +302,30 @@ export function JobDetailsPage() {
             <p className="text-xs mt-0.5 opacity-80">
               Este job será iniciado automaticamente assim que o pagamento for confirmado.
               {job.total_messages > 0 && ` ${job.total_messages.toLocaleString('pt-BR')} mensagens detectadas.`}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Reconnect result banner */}
+      {reconnectResult === 'success' && (
+        <div className="flex items-start gap-3 rounded-lg bg-success/10 border border-success/30 p-4 text-sm text-success">
+          <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Sessao reconectada com sucesso!</p>
+            <p className="text-xs mt-0.5 opacity-80">
+              Clique em "Continuar" para retomar o job de onde parou.
+            </p>
+          </div>
+        </div>
+      )}
+      {reconnectResult === 'failed' && (
+        <div className="flex items-start gap-3 rounded-lg bg-error/10 border border-error/30 p-4 text-sm text-error">
+          <WifiOff className="h-5 w-5 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Nao foi possivel reconectar</p>
+            <p className="text-xs mt-0.5 opacity-80">
+              A sessao expirou. Va ate <Link to="/accounts" className="underline font-medium">Contas</Link> e faca login novamente.
             </p>
           </div>
         </div>
