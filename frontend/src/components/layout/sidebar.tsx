@@ -6,6 +6,7 @@ import {
   Users,
   Settings,
   ScrollText,
+  Coins,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -24,6 +25,7 @@ const navigation = [
   { name: 'Novo Job', href: '/jobs/new', icon: Plus },
   { name: 'Jobs', href: '/jobs', icon: Copy },
   { name: 'Contas Telegram', href: '/accounts', icon: Users },
+  { name: 'Créditos', href: '/credits', icon: Coins },
   { name: 'Logs', href: '/logs', icon: ScrollText },
   { name: 'Configurações', href: '/settings', icon: Settings },
 ]
