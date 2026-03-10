@@ -38,6 +38,10 @@ desktop.ini
 
 # Logs
 *.log
+backend/logs/
+
+# Temp files (job downloads)
+backend/tmp/
 
 # Claude
 .claude/
