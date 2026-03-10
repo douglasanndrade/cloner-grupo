@@ -74,9 +74,9 @@ async def get_me(
         "data": {
             "username": user.username,
             "created_at": user.created_at.isoformat() if user.created_at else None,
-            "credits_basic": user.credits_basic,
-            "credits_standard": user.credits_standard,
-            "credits_premium": user.credits_premium,
+            "credits_basic": getattr(user, 'credits_basic', 0),
+            "credits_standard": getattr(user, 'credits_standard', 0),
+            "credits_premium": getattr(user, 'credits_premium', 0),
         }
     }
 
