@@ -157,10 +157,13 @@ export function JobDetailsPage() {
   }
 
   const handleCloneAgain = () => {
+    // Usa telegram_id numérico em vez do título pra garantir resolução correta
+    const source = job.source_telegram_id ? String(job.source_telegram_id) : job.source_title
+    const dest = job.destination_telegram_id ? String(job.destination_telegram_id) : job.destination_title
     const params = new URLSearchParams({
       name: job.name,
-      source: job.source_title,
-      dest: job.destination_title,
+      source,
+      dest,
       account_id: String(job.account_id),
       mode: job.mode,
       interval: String(job.send_interval_ms),

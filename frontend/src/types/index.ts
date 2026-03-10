@@ -76,8 +76,10 @@ export interface CloneJob {
   name: string
   source_entity_id: number
   source_title: string
+  source_telegram_id?: number
   destination_entity_id: number
   destination_title: string
+  destination_telegram_id?: number
   account_id: number
   account_phone: string
   mode: CloneMode

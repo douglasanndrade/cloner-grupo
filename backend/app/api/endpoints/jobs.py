@@ -52,10 +52,17 @@ async def list_jobs(
 
 @router.get("/{job_id}", response_model=ApiResponse[JobOut])
 async def get_job(job_id: int, db: AsyncSession = Depends(get_db)):
+    from app.models.entity import TelegramEntity
     job = await db.get(CloneJob, job_id)
     if not job:
         raise HTTPException(404, "Job não encontrado")
-    return {"data": job}
+    # Enrich with telegram_ids for "Clonar Novamente"
+    source_ent = await db.get(TelegramEntity, job.source_entity_id)
+    dest_ent = await db.get(TelegramEntity, job.destination_entity_id)
+    job_data = JobOut.model_validate(job).model_dump()
+    job_data["source_telegram_id"] = source_ent.telegram_id if source_ent else None
+    job_data["destination_telegram_id"] = dest_ent.telegram_id if dest_ent else None
+    return {"data": job_data}
 
 
 @router.post("", response_model=ApiResponse[JobOut])

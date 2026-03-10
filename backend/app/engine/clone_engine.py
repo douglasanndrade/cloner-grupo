@@ -330,6 +330,12 @@ class CloneEngine:
 
     async def _forward_single(self, client, job, msg, dest_peer, db):
         """Forward a single message."""
+        progress = job.processed_count + job.error_count + job.skipped_count + job.incompatible_count + 1
+        media_type = _get_media_type(msg)
+        await log(db, "info",
+            f"[{progress}/{job.total_messages}] Encaminhando msg {msg.id} ({media_type or 'texto'})...",
+            job_id=self.job_id
+        )
         try:
             result = await client.forward_messages(dest_peer, msg)
             dest_id = result.id if result else None
@@ -444,6 +450,12 @@ class CloneEngine:
 
         # Download
         try:
+            progress = job.processed_count + job.error_count + job.skipped_count + job.incompatible_count + 1
+            size_str = f" ({media_size // (1024*1024)}MB)" if media_size and media_size > 1024*1024 else ""
+            await log(db, "info",
+                f"[{progress}/{job.total_messages}] Baixando msg {msg.id} ({media_type or 'texto'}){size_str}...",
+                job_id=self.job_id
+            )
             file_path = os.path.join(temp_dir, f"msg_{msg.id}")
             downloaded = await client.download_media(msg, file=file_path)
             if not downloaded:
@@ -458,6 +470,10 @@ class CloneEngine:
 
         # Upload
         try:
+            await log(db, "info",
+                f"[{progress}/{job.total_messages}] Enviando msg {msg.id} para o destino...",
+                job_id=self.job_id
+            )
             caption = msg.text or ""
             result = await client.send_file(
                 dest_peer,
@@ -467,6 +483,10 @@ class CloneEngine:
             )
             await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
             await self._update_progress(db, job, "success")
+            await log(db, "success",
+                f"[{progress}/{job.total_messages}] Msg {msg.id} enviada com sucesso",
+                job_id=self.job_id
+            )
         except Exception as e:
             await self._save_item(db, job, msg, "error", error_msg=f"Erro no upload: {str(e)}")
             await self._update_progress(db, job, "error")
