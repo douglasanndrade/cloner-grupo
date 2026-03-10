@@ -654,7 +654,7 @@ class CloneEngine:
                     dl_last_log[0] = now
                     pct = int((received / total) * 100) if total else 0
                     mb_done = received // (1024 * 1024)
-                    mb_total = total // (1024 * 1024)
+                    mb_total = total // (1024 * 1024) if total else 0
                     asyncio.get_event_loop().create_task(
                         engine_ref._log_progress_bg("info",
                             f"[{progress}/{job.total_messages}] ⬇ Download msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)")
@@ -720,7 +720,7 @@ class CloneEngine:
                     ul_last_log[0] = now
                     pct = int((sent / total) * 100) if total else 0
                     mb_done = sent // (1024 * 1024)
-                    mb_total = total // (1024 * 1024)
+                    mb_total = total // (1024 * 1024) if total else 0
                     asyncio.get_event_loop().create_task(
                         engine_ref._log_progress_bg("info",
                             f"[{progress}/{job.total_messages}] ⬆ Upload msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)")
