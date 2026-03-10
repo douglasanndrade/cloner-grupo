@@ -316,14 +316,14 @@ export function AccountsPage() {
                 <Label htmlFor="phone">Número do Telefone</Label>
                 <Input
                   id="phone"
-                  placeholder="+5562982630175"
+                  placeholder="+5511999999999"
                   className="text-lg"
                   value={loginForm.phone}
                   onChange={(e) => setLoginForm({ ...loginForm, phone: e.target.value })}
                   onKeyDown={(e) => e.key === 'Enter' && loginForm.phone && handleStartLogin()}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Com código do país, sem espaços. Ex: +5562982630175
+                  Com código do país, sem espaços. Ex: +5511999999999
                 </p>
               </div>
               <div className="flex items-start gap-2 text-xs text-muted-foreground bg-surface rounded-lg p-3">

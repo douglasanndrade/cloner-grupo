@@ -37,6 +37,8 @@ export function NewJobPage() {
   const [accounts, setAccounts] = useState<TelegramAccount[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [sourceError, setSourceError] = useState('')
+  const [destError, setDestError] = useState('')
 
   // Pre-fill from query params (when coming from "Clonar Novamente")
   const prefillSource = searchParams.get('source') || ''
@@ -81,7 +83,8 @@ export function NewJobPage() {
   const handleResolveSource = async () => {
     if (!sourceIdentifier || !accountId) return
     setResolvingSource(true)
-    setError('')
+    setSourceError('')
+    setResolvedSource(null)
     try {
       const res = await entitiesApi.resolve({
         identifier: sourceIdentifier,
@@ -89,7 +92,7 @@ export function NewJobPage() {
       })
       setResolvedSource(res.data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao resolver origem.')
+      setSourceError(err instanceof Error ? err.message : 'Erro ao resolver origem.')
     } finally {
       setResolvingSource(false)
     }
@@ -98,7 +101,8 @@ export function NewJobPage() {
   const handleResolveDest = async () => {
     if (!destIdentifier || !accountId) return
     setResolvingDest(true)
-    setError('')
+    setDestError('')
+    setResolvedDest(null)
     try {
       const res = await entitiesApi.resolve({
         identifier: destIdentifier,
@@ -106,7 +110,7 @@ export function NewJobPage() {
       })
       setResolvedDest(res.data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao resolver destino.')
+      setDestError(err instanceof Error ? err.message : 'Erro ao resolver destino.')
     } finally {
       setResolvingDest(false)
     }
@@ -468,6 +472,12 @@ export function NewJobPage() {
                   )}
                 </Button>
               </div>
+              {sourceError && (
+                <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-xs text-error">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {sourceError}
+                </div>
+              )}
               {resolvedSource && (
                 <div className="flex items-center gap-2 rounded-lg bg-success/5 border border-success/20 p-3">
                   <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
@@ -504,6 +514,12 @@ export function NewJobPage() {
                   )}
                 </Button>
               </div>
+              {destError && (
+                <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-xs text-error">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {destError}
+                </div>
+              )}
               {resolvedDest && (
                 <div className="flex items-center gap-2 rounded-lg bg-success/5 border border-success/20 p-3">
                   <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
