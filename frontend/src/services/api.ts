@@ -78,7 +78,13 @@ export const authApi = {
     }),
 
   me: () =>
-    request<ApiResponse<{ username: string; created_at: string | null }>>('/auth/me'),
+    request<ApiResponse<{ username: string; created_at: string | null; credits_basic: number; credits_standard: number; credits_premium: number }>>('/auth/me'),
+
+  setCredits: (data: { username: string; credits_basic?: number; credits_standard?: number; credits_premium?: number }) =>
+    request<ApiResponse<any>>('/auth/set-credits', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   changePassword: (current_password: string, new_password: string) =>
     request<ApiResponse<null>>('/auth/change-password', {

@@ -101,8 +101,8 @@ export function JobsPage() {
     try {
       await jobsApi.delete(job.id)
       setJobs((prev) => prev.filter((j) => j.id !== job.id))
-    } catch {
-      // toast error
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao excluir job')
     }
   }
 

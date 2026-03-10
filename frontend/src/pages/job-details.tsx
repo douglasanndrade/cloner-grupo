@@ -123,8 +123,8 @@ export function JobDetailsPage() {
     try {
       await jobsApi.delete(jobId)
       navigate('/jobs')
-    } catch {
-      // toast error
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao excluir job')
     } finally {
       setActionLoading(null)
     }

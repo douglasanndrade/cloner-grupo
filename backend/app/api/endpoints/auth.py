@@ -74,5 +74,45 @@ async def get_me(
         "data": {
             "username": user.username,
             "created_at": user.created_at.isoformat() if user.created_at else None,
+            "credits_basic": user.credits_basic,
+            "credits_standard": user.credits_standard,
+            "credits_premium": user.credits_premium,
         }
+    }
+
+
+class SetCreditsRequest(BaseModel):
+    username: str
+    credits_basic: int | None = None
+    credits_standard: int | None = None
+    credits_premium: int | None = None
+
+
+@router.post("/set-credits")
+async def set_credits(
+    body: SetCreditsRequest,
+    username: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.username == body.username))
+    target_user = result.scalar_one_or_none()
+    if target_user is None:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    if body.credits_basic is not None:
+        target_user.credits_basic = body.credits_basic
+    if body.credits_standard is not None:
+        target_user.credits_standard = body.credits_standard
+    if body.credits_premium is not None:
+        target_user.credits_premium = body.credits_premium
+
+    await db.commit()
+    return {
+        "data": {
+            "username": target_user.username,
+            "credits_basic": target_user.credits_basic,
+            "credits_standard": target_user.credits_standard,
+            "credits_premium": target_user.credits_premium,
+        },
+        "message": "Créditos atualizados com sucesso",
     }

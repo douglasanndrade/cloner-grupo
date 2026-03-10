@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
+  Coins,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,7 @@ export function SettingsPage() {
   // Account info
   const username = useAuthStore((s) => s.username)
   const [accountCreatedAt, setAccountCreatedAt] = useState<string | null>(null)
+  const [credits, setCredits] = useState({ basic: 0, standard: 0, premium: 0 })
 
   // Change password
   const [currentPassword, setCurrentPassword] = useState('')
@@ -61,7 +63,14 @@ export function SettingsPage() {
       .finally(() => setLoading(false))
 
     authApi.me()
-      .then((res) => setAccountCreatedAt(res.data.created_at))
+      .then((res) => {
+        setAccountCreatedAt(res.data.created_at)
+        setCredits({
+          basic: res.data.credits_basic,
+          standard: res.data.credits_standard,
+          premium: res.data.credits_premium,
+        })
+      })
       .catch(() => {})
   }, [])
 
@@ -164,6 +173,34 @@ export function SettingsPage() {
                       })
                     : '—'}
                 </span>
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Credits */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Coins className="h-4 w-4 text-primary" />
+              <Label className="text-sm font-medium">Meus Créditos</Label>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-lg border border-border bg-surface p-4 text-center space-y-1">
+                <div className="text-2xl font-bold text-foreground">{credits.basic}</div>
+                <div className="text-xs text-muted-foreground">Básico</div>
+                <div className="text-xs text-muted-foreground">até 500 msgs</div>
+              </div>
+              <div className="rounded-lg border border-border bg-surface p-4 text-center space-y-1">
+                <div className="text-2xl font-bold text-foreground">{credits.standard}</div>
+                <div className="text-xs text-muted-foreground">Standard</div>
+                <div className="text-xs text-muted-foreground">501–1000 msgs</div>
+              </div>
+              <div className="rounded-lg border border-border bg-surface p-4 text-center space-y-1">
+                <div className="text-2xl font-bold text-foreground">{credits.premium}</div>
+                <div className="text-xs text-muted-foreground">Premium</div>
+                <div className="text-xs text-muted-foreground">+1000 msgs</div>
               </div>
             </div>
           </div>
