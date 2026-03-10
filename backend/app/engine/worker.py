@@ -21,6 +21,17 @@ async def _poll_loop():
     """Main worker loop — check for pending jobs every 5 seconds."""
     while True:
         try:
+            # Clean up completed tasks first
+            for job_id in list(_active_jobs.keys()):
+                engine, task = _active_jobs[job_id]
+                if task.done():
+                    # Log any exception from the task
+                    try:
+                        task.result()
+                    except Exception as e:
+                        print(f"[Worker] Job {job_id} task finished with error: {e}")
+                    del _active_jobs[job_id]
+
             async with async_session() as db:
                 # Find pending jobs
                 result = await db.execute(
@@ -30,14 +41,14 @@ async def _poll_loop():
 
                 for job in pending_jobs:
                     if job.id not in _active_jobs:
+                        print(f"[Worker] Iniciando job {job.id}")
                         await _start_job(job.id)
 
                 # Check for externally paused/cancelled jobs
                 for job_id in list(_active_jobs.keys()):
-                    engine, task = _active_jobs[job_id]
-                    if task.done():
-                        del _active_jobs[job_id]
+                    if job_id not in _active_jobs:
                         continue
+                    engine, task = _active_jobs[job_id]
 
                     # Check DB state
                     job = await db.get(CloneJob, job_id)

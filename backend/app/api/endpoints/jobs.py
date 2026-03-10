@@ -133,7 +133,18 @@ async def resume_job(job_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Job não encontrado")
     if job.status not in ("paused", "failed"):
         raise HTTPException(400, "Job não está pausado ou falhou")
-    job.status = "pending" if job.status == "failed" else "running"
+
+    # Check if engine is still active for this job
+    from app.engine.worker import get_active_job_ids
+    active_ids = get_active_job_ids()
+
+    if job_id in active_ids:
+        # Engine is still alive — just set to running so it resumes
+        job.status = "running"
+    else:
+        # Engine crashed or was never started — set to pending so worker picks it up
+        job.status = "pending"
+
     await db.commit()
     await db.refresh(job)
     return {"data": job}

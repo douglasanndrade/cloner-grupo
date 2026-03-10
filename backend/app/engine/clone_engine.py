@@ -1,10 +1,12 @@
 """
 Core clone engine — iterates messages from source and clones to destination.
 Supports forward and download+reupload modes with album preservation.
+Auto-reconnects on session drops (up to 3 retries).
 """
 import asyncio
 import os
 import time
+import logging
 from datetime import datetime, timezone
 from collections import defaultdict
 from functools import partial
@@ -30,9 +32,26 @@ from app.models.entity import TelegramEntity
 from app.services.log_service import log
 from app.core.config import settings
 
+logger = logging.getLogger("cloner.engine")
+
 # 2 GB limit for regular accounts, 4 GB for premium
 REGULAR_SIZE_LIMIT = 2 * 1024 * 1024 * 1024
 PREMIUM_SIZE_LIMIT = 4 * 1024 * 1024 * 1024
+
+# Connection keywords that indicate a session/network issue (for auto-reconnect)
+_DISCONNECT_KEYWORDS = [
+    "disconnect", "connection", "session", "authkey", "eof",
+    "broken pipe", "reset by peer", "timed out", "timeout",
+    "network", "unreachable", "connectionerror",
+]
+
+
+def _is_connection_error(e: Exception) -> bool:
+    """Check if an exception is a connection/session error."""
+    if isinstance(e, (ConnectionError, OSError, asyncio.TimeoutError)):
+        return True
+    msg = str(e).lower()
+    return any(kw in msg for kw in _DISCONNECT_KEYWORDS)
 
 
 def _get_media_type(message) -> str | None:
@@ -89,13 +108,18 @@ def _get_media_size(message) -> int | None:
 
 
 class CloneEngine:
-    """Runs a single clone job."""
+    """Runs a single clone job with auto-reconnect."""
+
+    MAX_RECONNECT_ATTEMPTS = 3
+    RECONNECT_DELAY = 10  # seconds between reconnect attempts
 
     def __init__(self, job_id: int, db_factory):
         self.job_id = job_id
         self.db_factory = db_factory  # async_session factory
         self._cancelled = False
         self._paused = False
+        self._client = None
+        self._account_phone = None
 
     def request_cancel(self):
         self._cancelled = True
@@ -105,6 +129,32 @@ class CloneEngine:
 
     def request_resume(self):
         self._paused = False
+
+    async def _reconnect(self, db) -> TelegramClient | None:
+        """Try to reconnect the Telegram client up to MAX_RECONNECT_ATTEMPTS times."""
+        from app.telegram.client_manager import ensure_connected
+
+        for attempt in range(1, self.MAX_RECONNECT_ATTEMPTS + 1):
+            await log(db, "warning",
+                f"Tentativa de reconexão {attempt}/{self.MAX_RECONNECT_ATTEMPTS}...",
+                job_id=self.job_id
+            )
+            await asyncio.sleep(self.RECONNECT_DELAY)
+            try:
+                client = await ensure_connected(self._account_phone)
+                me = await client.get_me()
+                await log(db, "success",
+                    f"Reconectado com sucesso como {me.first_name}!",
+                    job_id=self.job_id
+                )
+                self._client = client
+                return client
+            except Exception as e:
+                await log(db, "warning",
+                    f"Reconexão {attempt} falhou: {str(e)}",
+                    job_id=self.job_id
+                )
+        return None
 
     async def _resolve_peer(self, client, telegram_id: int):
         """Resolve entity tentando com e sem prefixo -100."""
@@ -128,12 +178,18 @@ class CloneEngine:
             if not job:
                 return
 
+            # Prevent duplicate starts — only start if pending
+            if job.status not in ("pending", "running"):
+                logger.warning(f"Job {self.job_id} status is {job.status}, skipping")
+                return
+
             await log(db, "info", "Iniciando job de clonagem...", job_id=self.job_id)
 
             try:
                 # Update status
                 job.status = "running"
-                job.started_at = datetime.now(timezone.utc)
+                if not job.started_at:
+                    job.started_at = datetime.now(timezone.utc)
                 await db.commit()
 
                 # Get entities
@@ -145,7 +201,9 @@ class CloneEngine:
 
                 # Get telegram client
                 from app.telegram.client_manager import ensure_connected
+                self._account_phone = job.account_phone
                 client = await ensure_connected(job.account_phone)
+                self._client = client
 
                 # Check if account is premium
                 me = await client.get_me()
@@ -159,7 +217,6 @@ class CloneEngine:
                 )
 
                 # Get source and dest entities via Telethon
-                # Tenta múltiplos formatos (com e sem -100) pra resolver
                 source_peer = await self._resolve_peer(client, source_entity.telegram_id)
                 dest_peer = await self._resolve_peer(client, dest_entity.telegram_id)
 
@@ -186,26 +243,32 @@ class CloneEngine:
                         job_id=self.job_id
                     )
 
-            except (ConnectionError, OSError) as e:
-                # Session disconnected — pause instead of fail so user doesn't lose credits
-                await db.refresh(job)
-                job.status = "paused"
-                await db.commit()
-                await log(db, "warning",
-                    f"Sessão desconectada — job pausado automaticamente. Reconecte a conta e retome. ({str(e)})",
-                    job_id=self.job_id
-                )
             except Exception as e:
-                error_msg = str(e).lower()
-                # Detect session/connection errors and pause instead of fail
-                if any(kw in error_msg for kw in ["disconnect", "connection", "session", "authkey", "eof", "broken pipe", "reset by peer"]):
-                    await db.refresh(job)
-                    job.status = "paused"
-                    await db.commit()
+                if _is_connection_error(e):
+                    # Try auto-reconnect before giving up
                     await log(db, "warning",
-                        f"Conexão perdida — job pausado automaticamente. Reconecte a conta e retome. ({str(e)})",
+                        f"Conexão perdida: {str(e)}. Tentando reconectar...",
                         job_id=self.job_id
                     )
+                    client = await self._reconnect(db)
+                    if client:
+                        # Reconnected — set back to pending so worker restarts the job
+                        await db.refresh(job)
+                        job.status = "pending"
+                        await db.commit()
+                        await log(db, "info",
+                            "Reconectado! Job será retomado automaticamente.",
+                            job_id=self.job_id
+                        )
+                    else:
+                        await db.refresh(job)
+                        job.status = "paused"
+                        await db.commit()
+                        await log(db, "warning",
+                            f"Não foi possível reconectar após {self.MAX_RECONNECT_ATTEMPTS} tentativas. "
+                            f"Job pausado — reconecte a conta e retome manualmente.",
+                            job_id=self.job_id
+                        )
                 else:
                     await db.refresh(job)
                     job.status = "failed"
@@ -250,6 +313,14 @@ class CloneEngine:
 
         return True
 
+    async def _log_progress_bg(self, level: str, message: str):
+        """Fire-and-forget log using a SEPARATE db session (safe for callbacks)."""
+        try:
+            async with self.db_factory() as db2:
+                await log(db2, level, message, job_id=self.job_id)
+        except Exception:
+            logger.warning(f"Failed to log progress: {message}")
+
     async def _collect_messages(self, client, source_peer, job, db):
         """Collect all messages from source, respecting date filters and resume point."""
         await log(db, "info", "Coletando mensagens da origem...", job_id=self.job_id)
@@ -261,14 +332,19 @@ class CloneEngine:
         if job.last_message_id:
             kwargs["min_id"] = job.last_message_id
 
+        count = 0
         async for msg in client.iter_messages(source_peer, reverse=True, **kwargs):
             if job.date_to and msg.date and msg.date > job.date_to:
                 break
             if msg.action:  # Skip service messages
                 continue
             messages.append(msg)
+            count += 1
+            # Log progress every 500 messages during collection
+            if count % 500 == 0:
+                await log(db, "info", f"Coletando... {count} mensagens até agora", job_id=self.job_id)
 
-        await log(db, "info", f"{len(messages)} mensagens encontradas", job_id=self.job_id)
+        await log(db, "info", f"{len(messages)} mensagens encontradas para processar", job_id=self.job_id)
 
         # Update job total
         await db.refresh(job)
@@ -335,9 +411,14 @@ class CloneEngine:
         """Forward messages in order, grouping albums."""
         messages = await self._collect_messages(client, source_peer, job, db)
         if not messages:
+            await log(db, "warning", "Nenhuma mensagem encontrada para processar", job_id=self.job_id)
             return
 
-        # Group by grouped_id for album handling
+        await log(db, "info",
+            f"Iniciando encaminhamento de {len(messages)} mensagens...",
+            job_id=self.job_id
+        )
+
         i = 0
         while i < len(messages):
             if not await self._check_state(job, db):
@@ -345,16 +426,34 @@ class CloneEngine:
 
             msg = messages[i]
 
-            # Collect album group
-            if msg.grouped_id:
-                album = [msg]
-                while i + 1 < len(messages) and messages[i + 1].grouped_id == msg.grouped_id:
-                    i += 1
-                    album.append(messages[i])
+            try:
+                # Collect album group
+                if msg.grouped_id:
+                    album = [msg]
+                    while i + 1 < len(messages) and messages[i + 1].grouped_id == msg.grouped_id:
+                        i += 1
+                        album.append(messages[i])
 
-                await self._forward_album(client, job, album, dest_peer, db)
-            else:
-                await self._forward_single(client, job, msg, dest_peer, db)
+                    await self._forward_album(client, job, album, dest_peer, db)
+                else:
+                    await self._forward_single(client, job, msg, dest_peer, db)
+
+            except Exception as e:
+                if _is_connection_error(e):
+                    await log(db, "warning",
+                        f"Conexão perdida durante msg {msg.id}: {str(e)}. Reconectando...",
+                        job_id=self.job_id
+                    )
+                    new_client = await self._reconnect(db)
+                    if new_client:
+                        client = new_client
+                        dest_entity = await db.get(TelegramEntity, job.destination_entity_id)
+                        dest_peer = await self._resolve_peer(client, dest_entity.telegram_id)
+                        continue  # Retry current message
+                    else:
+                        raise
+                else:
+                    raise
 
             # Update last_message_id for resume
             await db.refresh(job)
@@ -410,10 +509,16 @@ class CloneEngine:
         """Download and re-upload messages, preserving albums."""
         messages = await self._collect_messages(client, source_peer, job, db)
         if not messages:
+            await log(db, "warning", "Nenhuma mensagem encontrada para processar", job_id=self.job_id)
             return
 
         temp_dir = os.path.join(settings.temp_dir, f"job_{job.id}")
         os.makedirs(temp_dir, exist_ok=True)
+
+        await log(db, "info",
+            f"Iniciando processamento de {len(messages)} mensagens...",
+            job_id=self.job_id
+        )
 
         try:
             i = 0
@@ -423,16 +528,38 @@ class CloneEngine:
 
                 msg = messages[i]
 
-                # Collect album group
-                if msg.grouped_id:
-                    album = [msg]
-                    while i + 1 < len(messages) and messages[i + 1].grouped_id == msg.grouped_id:
-                        i += 1
-                        album.append(messages[i])
+                try:
+                    # Collect album group
+                    if msg.grouped_id:
+                        album = [msg]
+                        while i + 1 < len(messages) and messages[i + 1].grouped_id == msg.grouped_id:
+                            i += 1
+                            album.append(messages[i])
 
-                    await self._reupload_album(client, job, album, dest_peer, size_limit, temp_dir, db)
-                else:
-                    await self._reupload_single(client, job, msg, dest_peer, size_limit, temp_dir, db)
+                        await self._reupload_album(client, job, album, dest_peer, size_limit, temp_dir, db)
+                    else:
+                        await self._reupload_single(client, job, msg, dest_peer, size_limit, temp_dir, db)
+
+                except Exception as e:
+                    if _is_connection_error(e):
+                        # Try auto-reconnect
+                        await log(db, "warning",
+                            f"Conexão perdida durante msg {msg.id}: {str(e)}. Reconectando...",
+                            job_id=self.job_id
+                        )
+                        new_client = await self._reconnect(db)
+                        if new_client:
+                            client = new_client
+                            # Re-resolve peers after reconnect
+                            source_entity = await db.get(TelegramEntity, job.source_entity_id)
+                            dest_entity = await db.get(TelegramEntity, job.destination_entity_id)
+                            dest_peer = await self._resolve_peer(client, dest_entity.telegram_id)
+                            # Retry current message — don't increment i
+                            continue
+                        else:
+                            raise  # Give up, let outer handler pause
+                    else:
+                        raise
 
                 # Update last_message_id for resume
                 await db.refresh(job)
@@ -451,21 +578,41 @@ class CloneEngine:
         media_type = _get_media_type(msg)
         media_size = _get_media_size(msg)
 
+        progress = job.processed_count + job.error_count + job.skipped_count + job.incompatible_count + 1
+
         # Text-only message
         if not msg.media or isinstance(msg.media, (MessageMediaWebPage, MessageMediaContact, MessageMediaGeo, MessageMediaPoll)):
             if msg.text:
                 try:
+                    await log(db, "info",
+                        f"[{progress}/{job.total_messages}] Enviando texto msg {msg.id}...",
+                        job_id=self.job_id
+                    )
                     result = await client.send_message(dest_peer, msg.text)
                     await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
                     await self._update_progress(db, job, "success")
+                    await log(db, "success",
+                        f"[{progress}/{job.total_messages}] Texto msg {msg.id} enviado",
+                        job_id=self.job_id
+                    )
                 except Exception as e:
+                    if _is_connection_error(e):
+                        raise
                     await self._save_item(db, job, msg, "error", error_msg=str(e))
                     await self._update_progress(db, job, "error")
+                    await log(db, "error",
+                        f"[{progress}/{job.total_messages}] Erro ao enviar texto msg {msg.id}: {str(e)}",
+                        job_id=self.job_id
+                    )
             else:
                 # Unsupported media type for reupload (polls, contacts, etc.)
                 await self._save_item(db, job, msg, "incompatible",
                     error_msg=f"Tipo {media_type} não suportado para reupload")
                 await self._update_progress(db, job, "incompatible")
+                await log(db, "warning",
+                    f"[{progress}/{job.total_messages}] Msg {msg.id} incompatível ({media_type})",
+                    job_id=self.job_id
+                )
             return
 
         # Check size limit
@@ -487,7 +634,6 @@ class CloneEngine:
 
         # Download
         try:
-            progress = job.processed_count + job.error_count + job.skipped_count + job.incompatible_count + 1
             size_str = f" ({media_size // (1024*1024)}MB)" if media_size and media_size > 1024*1024 else ""
             await log(db, "info",
                 f"[{progress}/{job.total_messages}] Baixando msg {msg.id} ({media_type or 'texto'}){size_str}...",
@@ -497,8 +643,9 @@ class CloneEngine:
 
             total_size = media_size or 0
 
-            # Progress callback for large files (>10MB)
+            # Progress callback for large files (>10MB) — uses separate db session
             dl_last_log = [time.time()]
+            engine_ref = self  # capture for closure
 
             def dl_progress(received, total):
                 now = time.time()
@@ -507,11 +654,9 @@ class CloneEngine:
                     pct = int((received / total) * 100) if total else 0
                     mb_done = received // (1024 * 1024)
                     mb_total = total // (1024 * 1024)
-                    # Fire-and-forget log
                     asyncio.get_event_loop().create_task(
-                        log(db, "info",
-                            f"[{progress}/{job.total_messages}] Download msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)",
-                            job_id=self.job_id)
+                        engine_ref._log_progress_bg("info",
+                            f"[{progress}/{job.total_messages}] ⬇ Download msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)")
                     )
 
             downloaded = await client.download_media(
@@ -521,23 +666,32 @@ class CloneEngine:
             if not downloaded:
                 await self._save_item(db, job, msg, "error", error_msg="Download falhou - arquivo vazio")
                 await self._update_progress(db, job, "error")
+                await log(db, "error", f"[{progress}/{job.total_messages}] Download msg {msg.id} retornou vazio", job_id=self.job_id)
                 return
+
+            dl_size_mb = os.path.getsize(downloaded) // (1024 * 1024) if os.path.exists(downloaded) else 0
+            await log(db, "info",
+                f"[{progress}/{job.total_messages}] Download msg {msg.id} concluído ({dl_size_mb}MB)",
+                job_id=self.job_id
+            )
         except Exception as e:
+            if _is_connection_error(e):
+                raise  # Let the outer handler deal with reconnection
             await self._save_item(db, job, msg, "error", error_msg=f"Erro no download: {str(e)}")
             await self._update_progress(db, job, "error")
-            await log(db, "error", f"Erro ao baixar msg {msg.id}: {str(e)}", job_id=self.job_id)
+            await log(db, "error", f"[{progress}/{job.total_messages}] Erro ao baixar msg {msg.id}: {str(e)}", job_id=self.job_id)
             return
 
         # Upload
         try:
             file_size_mb = os.path.getsize(downloaded) // (1024 * 1024) if os.path.exists(downloaded) else 0
             await log(db, "info",
-                f"[{progress}/{job.total_messages}] Enviando msg {msg.id} ({file_size_mb}MB) para o destino...",
+                f"[{progress}/{job.total_messages}] ⬆ Enviando msg {msg.id} ({file_size_mb}MB) para o destino...",
                 job_id=self.job_id
             )
             caption = msg.text or ""
 
-            # Progress callback for upload
+            # Progress callback for upload — uses separate db session
             ul_last_log = [time.time()]
 
             def ul_progress(sent, total):
@@ -548,9 +702,8 @@ class CloneEngine:
                     mb_done = sent // (1024 * 1024)
                     mb_total = total // (1024 * 1024)
                     asyncio.get_event_loop().create_task(
-                        log(db, "info",
-                            f"[{progress}/{job.total_messages}] Upload msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)",
-                            job_id=self.job_id)
+                        engine_ref._log_progress_bg("info",
+                            f"[{progress}/{job.total_messages}] ⬆ Upload msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)")
                     )
 
             # For large files (>50MB), pre-upload with larger part size for speed
@@ -577,13 +730,15 @@ class CloneEngine:
             await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
             await self._update_progress(db, job, "success")
             await log(db, "success",
-                f"[{progress}/{job.total_messages}] Msg {msg.id} enviada com sucesso",
+                f"[{progress}/{job.total_messages}] Msg {msg.id} enviada com sucesso!",
                 job_id=self.job_id
             )
         except Exception as e:
+            if _is_connection_error(e):
+                raise  # Let outer handler reconnect
             await self._save_item(db, job, msg, "error", error_msg=f"Erro no upload: {str(e)}")
             await self._update_progress(db, job, "error")
-            await log(db, "error", f"Erro ao enviar msg {msg.id}: {str(e)}", job_id=self.job_id)
+            await log(db, "error", f"[{progress}/{job.total_messages}] Erro ao enviar msg {msg.id}: {str(e)}", job_id=self.job_id)
         finally:
             # Remove temp file
             if downloaded and os.path.exists(downloaded):
@@ -594,6 +749,12 @@ class CloneEngine:
 
     async def _reupload_album(self, client, job, album, dest_peer, size_limit, temp_dir, db):
         """Download and re-upload an album as a group."""
+        progress = job.processed_count + job.error_count + job.skipped_count + job.incompatible_count + 1
+        await log(db, "info",
+            f"[{progress}/{job.total_messages}] Processando álbum ({len(album)} itens, msg {album[0].id}-{album[-1].id})...",
+            job_id=self.job_id
+        )
+
         files = []
         captions = []
         skipped_msgs = []
@@ -624,6 +785,8 @@ class CloneEngine:
                     await self._update_progress(db, job, "error")
                     skipped_msgs.append(msg)
             except Exception as e:
+                if _is_connection_error(e):
+                    raise  # Let outer handler reconnect
                 await self._save_item(db, job, msg, "error", error_msg=f"Erro no download: {str(e)}")
                 await self._update_progress(db, job, "error")
                 skipped_msgs.append(msg)
@@ -633,6 +796,10 @@ class CloneEngine:
 
         # Send as album
         try:
+            await log(db, "info",
+                f"[{progress}/{job.total_messages}] ⬆ Enviando álbum ({len(files)} arquivos) para o destino...",
+                job_id=self.job_id
+            )
             # Only first caption is shown in album
             results = await client.send_file(
                 dest_peer,
@@ -655,14 +822,21 @@ class CloneEngine:
                 await self._save_item(db, job, msg_item, "success")
                 await self._update_progress(db, job, "success")
 
+            await log(db, "success",
+                f"[{progress}/{job.total_messages}] Álbum ({len(files)} itens) enviado com sucesso!",
+                job_id=self.job_id
+            )
+
         except Exception as e:
+            if _is_connection_error(e):
+                raise  # Let outer handler reconnect
             error_str = str(e)
             for msg_item in album:
                 if msg_item not in skipped_msgs:
                     await self._save_item(db, job, msg_item, "error", error_msg=f"Erro no upload do álbum: {error_str}")
                     await self._update_progress(db, job, "error")
             await log(db, "error",
-                f"Erro ao enviar álbum ({len(album)} itens): {error_str}",
+                f"[{progress}/{job.total_messages}] Erro ao enviar álbum ({len(album)} itens): {error_str}",
                 job_id=self.job_id
             )
         finally:
