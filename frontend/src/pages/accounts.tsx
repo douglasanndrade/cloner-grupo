@@ -85,8 +85,17 @@ export function AccountsPage() {
   useEffect(() => {
     accountsApi.list()
       .then((res) => {
-        setAccounts(res.data)
-        checkAllStatuses(res.data)
+        // Deduplicate by phone (keep the latest)
+        const seen = new Map<string, TelegramAccount>()
+        for (const acc of res.data) {
+          const key = acc.phone.replace(/[\s\-+]/g, '')
+          if (!seen.has(key) || acc.id > seen.get(key)!.id) {
+            seen.set(key, acc)
+          }
+        }
+        const unique = Array.from(seen.values())
+        setAccounts(unique)
+        checkAllStatuses(unique)
       })
       .catch(() => {/* keep mock */})
   }, [])

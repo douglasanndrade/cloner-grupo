@@ -75,14 +75,29 @@ async def _save_account(client, phone: str, db: AsyncSession) -> TelegramAccount
     """
     me = await client.get_me()
 
-    # Check if account already exists
-    stmt = select(TelegramAccount).where(TelegramAccount.phone == phone)
+    # Normalize phone for matching (strip spaces, ensure +)
+    normalized = phone.replace(" ", "").replace("-", "")
+
+    # Check if account already exists by phone OR telegram_id
+    stmt = select(TelegramAccount).where(
+        (TelegramAccount.phone == phone) |
+        (TelegramAccount.phone == normalized) |
+        (TelegramAccount.telegram_id == me.id)
+    )
     result = await db.execute(stmt)
-    account = result.scalar_one_or_none()
+    accounts = result.scalars().all()
+
+    # If multiple duplicates exist, keep only the first and delete rest
+    account = accounts[0] if accounts else None
+    if len(accounts) > 1:
+        for dup in accounts[1:]:
+            await db.delete(dup)
+        await db.flush()
 
     is_premium = getattr(me, "premium", False) or False
 
     if account:
+        account.phone = normalized
         account.username = me.username
         account.first_name = me.first_name
         account.last_name = me.last_name
@@ -92,7 +107,7 @@ async def _save_account(client, phone: str, db: AsyncSession) -> TelegramAccount
         account.session_file = get_session_file(phone)
     else:
         account = TelegramAccount(
-            phone=phone,
+            phone=normalized,
             username=me.username,
             first_name=me.first_name,
             last_name=me.last_name,
