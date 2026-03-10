@@ -660,23 +660,22 @@ class CloneEngine:
                             f"[{progress}/{job.total_messages}] ⬇ Download msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)")
                     )
 
-            # For large files (>50MB), use download_file with larger part_size for ~8x speed
+            # For large files (>50MB), use download_file with larger part_size
             if size_mb > 50 and hasattr(msg.media, 'document') and msg.media.document:
-                dl_path = file_path
-                # Get file extension from attributes
                 doc = msg.media.document
+                # Build file path with extension from attributes
+                dl_path = file_path
                 for attr in doc.attributes:
                     if isinstance(attr, DocumentAttributeFilename):
                         dl_path = file_path + "_" + attr.file_name
                         break
 
-                with open(dl_path, 'wb') as f:
-                    await client.download_file(
-                        doc,
-                        f,
-                        part_size_kb=512,
-                        progress_callback=dl_progress,
-                    )
+                await client.download_file(
+                    doc,
+                    dl_path,
+                    part_size_kb=512,
+                    progress_callback=dl_progress,
+                )
                 downloaded = dl_path
             else:
                 downloaded = await client.download_media(
