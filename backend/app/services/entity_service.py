@@ -30,11 +30,28 @@ async def resolve_entity(
     # Parse identifier
     parsed = _parse_identifier(identifier)
 
-    # Resolve via Telethon
-    try:
-        entity = await client.get_entity(parsed)
-    except Exception as e:
-        raise ValueError(f"Não foi possível resolver '{identifier}': {e}")
+    # Resolve via Telethon — tenta múltiplos formatos se for ID numérico
+    entity = None
+    attempts = [parsed]
+
+    # Se for número puro (sem -100), tenta também com -100 na frente
+    if isinstance(parsed, int) and parsed > 0:
+        attempts.append(int(f"-100{parsed}"))
+    # Se já veio com -100, tenta também sem
+    elif isinstance(parsed, int) and str(parsed).startswith("-100"):
+        raw_id = int(str(parsed).replace("-100", "", 1))
+        attempts.append(raw_id)
+
+    last_error = None
+    for attempt in attempts:
+        try:
+            entity = await client.get_entity(attempt)
+            break
+        except Exception as e:
+            last_error = e
+
+    if entity is None:
+        raise ValueError(f"Não foi possível resolver '{identifier}': {last_error}")
 
     # Determine type and info
     if isinstance(entity, Channel):

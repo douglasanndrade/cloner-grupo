@@ -110,15 +110,24 @@ async def scan_messages(job_id: int, db: AsyncSession = Depends(get_db)):
     try:
         client = await ensure_connected(job.account_phone)
 
-        # Reconstruct the full Telegram ID that Telethon can resolve:
-        # channels/supergroups use -100 prefix + channel_id
+        # Tenta resolver o entity com múltiplos formatos
         tg_id = source_entity.telegram_id
-        if source_entity.entity_type in ("channel", "supergroup"):
-            full_id = int(f"-100{tg_id}")
-        else:
-            full_id = tg_id
+        entity = None
+        attempts = [tg_id]
+        if tg_id > 0:
+            attempts.append(int(f"-100{tg_id}"))
+        elif str(tg_id).startswith("-100"):
+            attempts.append(int(str(tg_id).replace("-100", "", 1)))
 
-        entity = await client.get_entity(full_id)
+        for attempt in attempts:
+            try:
+                entity = await client.get_entity(attempt)
+                break
+            except Exception:
+                continue
+
+        if entity is None:
+            raise ValueError(f"Não foi possível resolver a entidade de origem (ID: {tg_id})")
 
         # Count messages (respecting date filters)
         kwargs = {}
