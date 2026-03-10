@@ -59,10 +59,34 @@ export function AccountsPage() {
   const [phoneCodeHash, setPhoneCodeHash] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState('')
+  const [statusChecking, setStatusChecking] = useState<Record<number, boolean>>({})
+
+  const checkAllStatuses = (accountsList: TelegramAccount[]) => {
+    for (const acc of accountsList) {
+      setStatusChecking((prev) => ({ ...prev, [acc.id]: true }))
+      accountsApi.checkStatus(acc.id)
+        .then((statusRes) => {
+          setAccounts((prev) =>
+            prev.map((a) => a.id === acc.id ? { ...a, is_active: statusRes.data.is_active, is_premium: statusRes.data.is_premium } : a)
+          )
+        })
+        .catch(() => {
+          setAccounts((prev) =>
+            prev.map((a) => a.id === acc.id ? { ...a, is_active: false } : a)
+          )
+        })
+        .finally(() => {
+          setStatusChecking((prev) => ({ ...prev, [acc.id]: false }))
+        })
+    }
+  }
 
   useEffect(() => {
     accountsApi.list()
-      .then((res) => setAccounts(res.data))
+      .then((res) => {
+        setAccounts(res.data)
+        checkAllStatuses(res.data)
+      })
       .catch(() => {/* keep mock */})
   }, [])
 
@@ -189,6 +213,22 @@ export function AccountsPage() {
         </CardContent>
       </Card>
 
+      {/* Disconnected session alert */}
+      {accounts.some((a) => !a.is_active && !statusChecking[a.id]) && (
+        <Card className="border-error/30 bg-error/5">
+          <CardContent className="flex items-start gap-3 p-4">
+            <XCircle className="h-5 w-5 text-error shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium text-error">Sessao desconectada detectada</p>
+              <p className="text-muted-foreground mt-1">
+                {accounts.filter((a) => !a.is_active && !statusChecking[a.id]).map((a) => a.phone).join(', ')}{' '}
+                — a sessao expirou ou foi desconectada. Clique em <b>Adicionar Conta</b> e faca login novamente com o mesmo numero para reconectar.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Accounts List */}
       <div className="grid gap-4">
         {accounts.length === 0 ? (
@@ -207,7 +247,7 @@ export function AccountsPage() {
           </Card>
         ) : (
           accounts.map((account) => (
-            <Card key={account.id} className="hover:border-border-hover transition-colors">
+            <Card key={account.id} className={`hover:border-border-hover transition-colors ${!account.is_active && !statusChecking[account.id] ? 'border-error/30 bg-error/5' : ''}`}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
@@ -228,15 +268,20 @@ export function AccountsPage() {
                             Premium
                           </Badge>
                         )}
-                        {account.is_active ? (
+                        {statusChecking[account.id] ? (
+                          <Badge variant="secondary" className="gap-1">
+                            <RefreshCw className="h-3 w-3 animate-spin" />
+                            Verificando...
+                          </Badge>
+                        ) : account.is_active ? (
                           <Badge variant="success" className="gap-1">
                             <CheckCircle2 className="h-3 w-3" />
-                            Ativa
+                            Conectada
                           </Badge>
                         ) : (
                           <Badge variant="error" className="gap-1">
                             <XCircle className="h-3 w-3" />
-                            Inativa
+                            Desconectada
                           </Badge>
                         )}
                       </div>
