@@ -635,8 +635,9 @@ class CloneEngine:
         # Download
         try:
             size_str = f" ({media_size // (1024*1024)}MB)" if media_size and media_size > 1024*1024 else ""
+            size_mb = (media_size or 0) // (1024 * 1024)
             await log(db, "info",
-                f"[{progress}/{job.total_messages}] Baixando msg {msg.id} ({media_type or 'texto'}){size_str}...",
+                f"[{progress}/{job.total_messages}] ⬇ Baixando msg {msg.id} ({media_type or 'texto'}){size_str}...",
                 job_id=self.job_id
             )
             file_path = os.path.join(temp_dir, f"msg_{msg.id}")
@@ -659,11 +660,31 @@ class CloneEngine:
                             f"[{progress}/{job.total_messages}] ⬇ Download msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)")
                     )
 
-            downloaded = await client.download_media(
-                msg, file=file_path,
-                progress_callback=dl_progress if total_size > 10 * 1024 * 1024 else None,
-            )
-            if not downloaded:
+            # For large files (>50MB), use download_file with larger part_size for ~8x speed
+            if size_mb > 50 and hasattr(msg.media, 'document') and msg.media.document:
+                dl_path = file_path
+                # Get file extension from attributes
+                doc = msg.media.document
+                for attr in doc.attributes:
+                    if isinstance(attr, DocumentAttributeFilename):
+                        dl_path = file_path + "_" + attr.file_name
+                        break
+
+                with open(dl_path, 'wb') as f:
+                    await client.download_file(
+                        doc,
+                        f,
+                        part_size_kb=512,
+                        progress_callback=dl_progress,
+                    )
+                downloaded = dl_path
+            else:
+                downloaded = await client.download_media(
+                    msg, file=file_path,
+                    progress_callback=dl_progress if total_size > 10 * 1024 * 1024 else None,
+                )
+
+            if not downloaded or (isinstance(downloaded, str) and not os.path.exists(downloaded)):
                 await self._save_item(db, job, msg, "error", error_msg="Download falhou - arquivo vazio")
                 await self._update_progress(db, job, "error")
                 await log(db, "error", f"[{progress}/{job.total_messages}] Download msg {msg.id} retornou vazio", job_id=self.job_id)
@@ -671,7 +692,7 @@ class CloneEngine:
 
             dl_size_mb = os.path.getsize(downloaded) // (1024 * 1024) if os.path.exists(downloaded) else 0
             await log(db, "info",
-                f"[{progress}/{job.total_messages}] Download msg {msg.id} concluído ({dl_size_mb}MB)",
+                f"[{progress}/{job.total_messages}] ⬇ Download msg {msg.id} concluído ({dl_size_mb}MB)",
                 job_id=self.job_id
             )
         except Exception as e:
