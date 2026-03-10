@@ -473,7 +473,29 @@ class CloneEngine:
                 job_id=self.job_id
             )
             file_path = os.path.join(temp_dir, f"msg_{msg.id}")
-            downloaded = await client.download_media(msg, file=file_path)
+
+            # Progress callback for large files
+            last_log_time = [time.time()]
+            total_size = media_size or 0
+
+            def dl_progress(received, total):
+                now = time.time()
+                if now - last_log_time[0] >= 5:  # Log every 5 seconds
+                    last_log_time[0] = now
+                    pct = int((received / total) * 100) if total else 0
+                    mb_done = received // (1024 * 1024)
+                    mb_total = total // (1024 * 1024)
+                    import asyncio
+                    asyncio.get_event_loop().create_task(
+                        log(db, "info",
+                            f"[{progress}/{job.total_messages}] Download msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)",
+                            job_id=self.job_id)
+                    )
+
+            downloaded = await client.download_media(
+                msg, file=file_path,
+                progress_callback=dl_progress if total_size > 10 * 1024 * 1024 else None,
+            )
             if not downloaded:
                 await self._save_item(db, job, msg, "error", error_msg="Download falhou - arquivo vazio")
                 await self._update_progress(db, job, "error")
@@ -486,16 +508,36 @@ class CloneEngine:
 
         # Upload
         try:
+            file_size_mb = os.path.getsize(downloaded) // (1024 * 1024) if os.path.exists(downloaded) else 0
             await log(db, "info",
-                f"[{progress}/{job.total_messages}] Enviando msg {msg.id} para o destino...",
+                f"[{progress}/{job.total_messages}] Enviando msg {msg.id} ({file_size_mb}MB) para o destino...",
                 job_id=self.job_id
             )
             caption = msg.text or ""
+
+            # Progress callback for upload
+            ul_last_log = [time.time()]
+
+            def ul_progress(sent, total):
+                now = time.time()
+                if now - ul_last_log[0] >= 5:
+                    ul_last_log[0] = now
+                    pct = int((sent / total) * 100) if total else 0
+                    mb_done = sent // (1024 * 1024)
+                    mb_total = total // (1024 * 1024)
+                    import asyncio
+                    asyncio.get_event_loop().create_task(
+                        log(db, "info",
+                            f"[{progress}/{job.total_messages}] Upload msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)",
+                            job_id=self.job_id)
+                    )
+
             result = await client.send_file(
                 dest_peer,
                 downloaded,
                 caption=caption,
                 force_document=media_type == "document",
+                progress_callback=ul_progress if file_size_mb > 10 else None,
             )
             await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
             await self._update_progress(db, job, "success")

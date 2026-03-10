@@ -192,7 +192,11 @@ export function JobDetailsPage() {
               <JobStatusBadge status={job.status} />
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {job.source_title} → {job.destination_title}
+              {job.source_title}
+              {job.source_telegram_id && <span className="font-mono text-xs ml-1">({job.source_telegram_id})</span>}
+              {' → '}
+              {job.destination_title}
+              {job.destination_telegram_id && <span className="font-mono text-xs ml-1">({job.destination_telegram_id})</span>}
             </p>
           </div>
         </div>
