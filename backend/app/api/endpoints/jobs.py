@@ -105,7 +105,7 @@ async def create_job(req: CreateJobRequest, db: AsyncSession = Depends(get_db)):
         date_from=date_from,
         date_to=date_to,
         notes=req.notes,
-        status="awaiting_payment",
+        status="pending",
     )
     db.add(job)
     await db.commit()

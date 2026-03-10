@@ -10,9 +10,6 @@ import {
   Crown,
   Forward,
   Download,
-  DollarSign,
-  CreditCard,
-  Loader2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,9 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { accountsApi, entitiesApi, jobsApi, paymentsApi } from '@/services/api'
-import type { TelegramAccount, TelegramEntity, CloneMode, ScanResult } from '@/types'
-import { cn, formatNumber } from '@/lib/utils'
+import { accountsApi, entitiesApi, jobsApi } from '@/services/api'
+import type { TelegramAccount, TelegramEntity, CloneMode } from '@/types'
+import { cn } from '@/lib/utils'
 
 export function NewJobPage() {
   const navigate = useNavigate()
@@ -65,12 +62,6 @@ export function NewJobPage() {
   const [resolvedDest, setResolvedDest] = useState<TelegramEntity | null>(null)
   const [resolvingSource, setResolvingSource] = useState(false)
   const [resolvingDest, setResolvingDest] = useState(false)
-
-  // Payment flow state
-  const [step, setStep] = useState<'form' | 'scanning' | 'payment'>('form')
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null)
-  const [createdJobId, setCreatedJobId] = useState<number | null>(null)
-  const [checkoutLoading, setCheckoutLoading] = useState(false)
 
   const selectedAccount = accounts.find((a) => String(a.id) === accountId)
 
@@ -116,11 +107,10 @@ export function NewJobPage() {
     }
   }
 
-  const handleCreateAndScan = async () => {
+  const handleCreate = async () => {
     setLoading(true)
     setError('')
     try {
-      // 1. Create job (status = awaiting_payment)
       const jobRes = await jobsApi.create({
         name,
         source_identifier: sourceIdentifier,
@@ -137,163 +127,12 @@ export function NewJobPage() {
         date_to: dateTo || undefined,
         notes: notes || undefined,
       })
-      const jobId = jobRes.data.id
-      setCreatedJobId(jobId)
-
-      // 2. Scan messages
-      setStep('scanning')
-      const scanRes = await paymentsApi.scan(jobId)
-      setScanResult(scanRes.data)
-      setStep('payment')
+      navigate(`/jobs/${jobRes.data.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao criar job.')
-      setStep('form')
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleCheckout = async () => {
-    if (!createdJobId) return
-    setCheckoutLoading(true)
-    setError('')
-    try {
-      const res = await paymentsApi.checkout(createdJobId)
-      const url = res.data.checkout_url
-      if (!url) {
-        setError('Link de pagamento não configurado. Entre em contato com o administrador.')
-        return
-      }
-      // Open checkout in new tab
-      window.open(url, '_blank')
-      // Navigate to job details to track payment status
-      navigate(`/jobs/${createdJobId}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao gerar link de pagamento.')
-    } finally {
-      setCheckoutLoading(false)
-    }
-  }
-
-  // Payment step view
-  if (step === 'scanning') {
-    return (
-      <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-20 space-y-4">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        <h2 className="text-xl font-semibold text-foreground">Escaneando mensagens...</h2>
-        <p className="text-sm text-muted-foreground">
-          Contando as mensagens do grupo de origem. Isso pode levar alguns instantes.
-        </p>
-      </div>
-    )
-  }
-
-  if (step === 'payment' && scanResult) {
-    return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Pagamento</h1>
-          <p className="text-sm text-muted-foreground">
-            Escaneamento concluído. Confira os detalhes e prossiga com o pagamento.
-          </p>
-        </div>
-
-        {error && (
-          <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-4 text-sm text-error">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            {error}
-          </div>
-        )}
-
-        {/* Scan Result */}
-        <Card className="border-primary/30">
-          <CardContent className="p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-                  <Copy className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <p className="font-semibold text-foreground">{name}</p>
-                  <p className="text-xs text-muted-foreground">{sourceIdentifier} → {destIdentifier}</p>
-                </div>
-              </div>
-              <Badge variant="info" className="text-sm px-3 py-1">
-                {formatNumber(scanResult.message_count)} mensagens
-              </Badge>
-            </div>
-
-            <Separator />
-
-            {/* Plan Info */}
-            <div className="flex items-center justify-between p-4 rounded-lg bg-surface">
-              <div>
-                <p className="text-sm text-muted-foreground">Plano selecionado</p>
-                <p className="text-lg font-bold text-foreground">{scanResult.plan_name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {scanResult.plan === 'basic' && 'Até 500 mensagens'}
-                  {scanResult.plan === 'standard' && '501 a 1.000 mensagens'}
-                  {scanResult.plan === 'premium' && 'Acima de 1.000 mensagens'}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-3xl font-bold text-primary">{scanResult.amount_formatted}</p>
-                <p className="text-xs text-muted-foreground">pagamento único</p>
-              </div>
-            </div>
-
-            {/* Pricing tiers */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className={cn(
-                'rounded-lg p-3 text-center border-2 transition-all',
-                scanResult.plan === 'basic' ? 'border-primary bg-primary/5' : 'border-border opacity-50'
-              )}>
-                <p className="text-lg font-bold text-primary">R$ 29,90</p>
-                <p className="text-xs text-muted-foreground">Até 500</p>
-              </div>
-              <div className={cn(
-                'rounded-lg p-3 text-center border-2 transition-all',
-                scanResult.plan === 'standard' ? 'border-warning bg-warning/5' : 'border-border opacity-50'
-              )}>
-                <p className="text-lg font-bold text-warning">R$ 49,90</p>
-                <p className="text-xs text-muted-foreground">501 a 1.000</p>
-              </div>
-              <div className={cn(
-                'rounded-lg p-3 text-center border-2 transition-all',
-                scanResult.plan === 'premium' ? 'border-accent bg-accent/5' : 'border-border opacity-50'
-              )}>
-                <p className="text-lg font-bold text-accent">R$ 99,90</p>
-                <p className="text-xs text-muted-foreground">+1.000</p>
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <Button variant="outline" onClick={() => { setStep('form'); setError('') }}>
-                Voltar
-              </Button>
-              <Button size="lg" onClick={handleCheckout} disabled={checkoutLoading}>
-                {checkoutLoading ? (
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CreditCard className="mr-2 h-4 w-4" />
-                )}
-                Pagar {scanResult.amount_formatted}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex items-start gap-2 text-xs text-muted-foreground bg-surface rounded-lg p-3">
-          <Info className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>
-            Após o pagamento ser confirmado, o job será iniciado automaticamente.
-            Você será redirecionado para a página do job onde pode acompanhar o progresso em tempo real.
-          </span>
-        </div>
-      </div>
-    )
   }
 
   // Main form
@@ -330,30 +169,6 @@ export function NewJobPage() {
           {error}
         </div>
       )}
-
-      {/* Pricing Info */}
-      <Card className="border-primary/30 bg-primary/5">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <DollarSign className="h-5 w-5 text-primary" />
-            <p className="font-semibold text-foreground">Valores por Job</p>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-lg bg-background/50 p-3 text-center">
-              <p className="text-lg font-bold text-primary">R$ 29,90</p>
-              <p className="text-xs text-muted-foreground">Até 500 mensagens</p>
-            </div>
-            <div className="rounded-lg bg-background/50 p-3 text-center">
-              <p className="text-lg font-bold text-warning">R$ 49,90</p>
-              <p className="text-xs text-muted-foreground">501 a 1.000 mensagens</p>
-            </div>
-            <div className="rounded-lg bg-background/50 p-3 text-center">
-              <p className="text-lg font-bold text-accent">R$ 99,90</p>
-              <p className="text-xs text-muted-foreground">Acima de 1.000 mensagens</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Basic Info */}
       <Card>
@@ -715,15 +530,15 @@ export function NewJobPage() {
             </div>
             <Button
               size="lg"
-              onClick={handleCreateAndScan}
+              onClick={handleCreate}
               disabled={loading || !name || !sourceIdentifier || !destIdentifier || !accountId}
             >
               {loading ? (
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
               ) : (
-                <Search className="mr-2 h-4 w-4" />
+                <Copy className="mr-2 h-4 w-4" />
               )}
-              Escanear e Ver Preço
+              Criar Job
             </Button>
           </div>
         </CardContent>

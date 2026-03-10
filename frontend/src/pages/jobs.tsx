@@ -184,7 +184,10 @@ export function JobsPage() {
                         <Copy className="h-4 w-4 text-primary" />
                       </div>
                       <div>
-                        <p className="font-medium text-foreground">{job.name}</p>
+                        <p className="font-medium text-foreground">
+                          <span className="text-muted-foreground font-mono text-xs mr-1.5">#{job.id}</span>
+                          {job.name}
+                        </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {job.source_title} → {job.destination_title}
                         </p>

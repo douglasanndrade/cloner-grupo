@@ -187,6 +187,7 @@ export function JobDetailsPage() {
           </Link>
           <div>
             <div className="flex items-center gap-3">
+              <span className="text-sm font-mono text-muted-foreground">#{job.id}</span>
               <h1 className="text-2xl font-bold text-foreground">{job.name}</h1>
               <JobStatusBadge status={job.status} />
             </div>
