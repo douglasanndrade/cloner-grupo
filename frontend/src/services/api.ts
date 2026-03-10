@@ -152,6 +152,12 @@ export const entitiesApi = {
 
   list: () =>
     request<ApiResponse<TelegramEntity[]>>('/entities'),
+
+  verifyGroup: (data: { identifier: string; account_id: number }) =>
+    request<ApiResponse<{ title: string; telegram_id: number; message_count: number; credit_tier: string; credit_tier_label: string }>>('/entities/verify-group', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 }
 
 // ============================================================

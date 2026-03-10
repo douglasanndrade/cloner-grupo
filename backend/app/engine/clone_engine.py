@@ -186,12 +186,32 @@ class CloneEngine:
                         job_id=self.job_id
                     )
 
-            except Exception as e:
+            except (ConnectionError, OSError) as e:
+                # Session disconnected — pause instead of fail so user doesn't lose credits
                 await db.refresh(job)
-                job.status = "failed"
-                job.finished_at = datetime.now(timezone.utc)
+                job.status = "paused"
                 await db.commit()
-                await log(db, "error", f"Job falhou: {str(e)}", job_id=self.job_id)
+                await log(db, "warning",
+                    f"Sessão desconectada — job pausado automaticamente. Reconecte a conta e retome. ({str(e)})",
+                    job_id=self.job_id
+                )
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Detect session/connection errors and pause instead of fail
+                if any(kw in error_msg for kw in ["disconnect", "connection", "session", "authkey", "eof", "broken pipe", "reset by peer"]):
+                    await db.refresh(job)
+                    job.status = "paused"
+                    await db.commit()
+                    await log(db, "warning",
+                        f"Conexão perdida — job pausado automaticamente. Reconecte a conta e retome. ({str(e)})",
+                        job_id=self.job_id
+                    )
+                else:
+                    await db.refresh(job)
+                    job.status = "failed"
+                    job.finished_at = datetime.now(timezone.utc)
+                    await db.commit()
+                    await log(db, "error", f"Job falhou: {str(e)}", job_id=self.job_id)
 
     async def _check_state(self, job, db) -> bool:
         """Check if job should continue. Returns False if cancelled."""

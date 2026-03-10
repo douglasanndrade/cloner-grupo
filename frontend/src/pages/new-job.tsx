@@ -63,6 +63,14 @@ export function NewJobPage() {
   const [resolvingSource, setResolvingSource] = useState(false)
   const [resolvingDest, setResolvingDest] = useState(false)
 
+  // Group verification (message count + credit tier)
+  const [verifyResult, setVerifyResult] = useState<{
+    title: string; telegram_id: number; message_count: number;
+    credit_tier: string; credit_tier_label: string;
+  } | null>(null)
+  const [verifying, setVerifying] = useState(false)
+  const [verifyError, setVerifyError] = useState('')
+
   const selectedAccount = accounts.find((a) => String(a.id) === accountId)
 
   useEffect(() => {
@@ -76,12 +84,28 @@ export function NewJobPage() {
     setResolvingSource(true)
     setSourceError('')
     setResolvedSource(null)
+    setVerifyResult(null)
+    setVerifyError('')
     try {
       const res = await entitiesApi.resolve({
         identifier: sourceIdentifier,
         account_id: Number(accountId),
       })
       setResolvedSource(res.data)
+
+      // Auto-verify group to count messages and show credit cost
+      setVerifying(true)
+      try {
+        const vRes = await entitiesApi.verifyGroup({
+          identifier: sourceIdentifier,
+          account_id: Number(accountId),
+        })
+        setVerifyResult(vRes.data)
+      } catch (vErr) {
+        setVerifyError(vErr instanceof Error ? vErr.message : 'Erro ao verificar grupo')
+      } finally {
+        setVerifying(false)
+      }
     } catch (err) {
       setSourceError(err instanceof Error ? err.message : 'Erro ao resolver origem.')
     } finally {
@@ -303,6 +327,35 @@ export function NewJobPage() {
                       {resolvedSource.members_count && ` · ${resolvedSource.members_count} membros`}
                     </p>
                   </div>
+                </div>
+              )}
+              {verifying && (
+                <div className="flex items-center gap-2 rounded-lg bg-info/5 border border-info/20 p-3 text-xs text-info">
+                  <RefreshCw className="h-4 w-4 animate-spin shrink-0" />
+                  Contando mensagens do grupo...
+                </div>
+              )}
+              {verifyResult && (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Mensagens encontradas:</span>
+                    <span className="text-sm font-bold text-foreground">{verifyResult.message_count.toLocaleString('pt-BR')}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">Crédito necessário:</span>
+                    <span className={`text-sm font-bold ${
+                      verifyResult.credit_tier === 'basic' ? 'text-green-500' :
+                      verifyResult.credit_tier === 'standard' ? 'text-blue-500' : 'text-purple-500'
+                    }`}>
+                      1x {verifyResult.credit_tier_label}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {verifyError && (
+                <div className="flex items-center gap-2 rounded-lg bg-warning/10 border border-warning/20 p-3 text-xs text-warning">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {verifyError}
                 </div>
               )}
             </div>

@@ -1,8 +1,18 @@
 import { useState, useEffect } from 'react'
-import { Coins, RefreshCw } from 'lucide-react'
+import { Coins, RefreshCw, ShoppingCart, Search, AlertTriangle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { authApi } from '@/services/api'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { authApi, entitiesApi, accountsApi } from '@/services/api'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import type { TelegramAccount } from '@/types'
 
 interface Credits {
   basic: number
@@ -13,6 +23,17 @@ interface Credits {
 export function CreditsPage() {
   const [credits, setCredits] = useState<Credits>({ basic: 0, standard: 0, premium: 0 })
   const [loading, setLoading] = useState(true)
+
+  // Verify group
+  const [accounts, setAccounts] = useState<TelegramAccount[]>([])
+  const [verifyAccountId, setVerifyAccountId] = useState('')
+  const [verifyGroupId, setVerifyGroupId] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [verifyResult, setVerifyResult] = useState<{
+    title: string; telegram_id: number; message_count: number;
+    credit_tier: string; credit_tier_label: string;
+  } | null>(null)
+  const [verifyError, setVerifyError] = useState('')
 
   const fetchCredits = () => {
     setLoading(true)
@@ -30,7 +51,26 @@ export function CreditsPage() {
 
   useEffect(() => {
     fetchCredits()
+    accountsApi.list().then((res) => setAccounts(res.data)).catch(() => {})
   }, [])
+
+  const handleVerifyGroup = async () => {
+    if (!verifyGroupId || !verifyAccountId) return
+    setVerifying(true)
+    setVerifyResult(null)
+    setVerifyError('')
+    try {
+      const res = await entitiesApi.verifyGroup({
+        identifier: verifyGroupId,
+        account_id: Number(verifyAccountId),
+      })
+      setVerifyResult(res.data)
+    } catch (err) {
+      setVerifyError(err instanceof Error ? err.message : 'Erro ao verificar grupo')
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   const totalCredits = credits.basic + credits.standard + credits.premium
 
@@ -119,9 +159,102 @@ export function CreditsPage() {
         </Card>
       </div>
 
-      {/* Info */}
+      {/* Verify Group */}
       <Card>
-        <CardContent className="pt-6">
+        <CardHeader>
+          <CardTitle className="text-base">Verificar Grupo</CardTitle>
+          <CardDescription>
+            Informe o ID do grupo para saber quantas mensagens tem e qual crédito será usado
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Conta Telegram</Label>
+              <Select value={verifyAccountId} onValueChange={setVerifyAccountId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma conta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((acc) => (
+                    <SelectItem key={acc.id} value={String(acc.id)}>
+                      {acc.phone} {acc.first_name && `(${acc.first_name})`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>ID do Grupo/Canal</Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="-1003322669846 ou @canal"
+                  value={verifyGroupId}
+                  onChange={(e) => setVerifyGroupId(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleVerifyGroup()}
+                />
+                <Button
+                  onClick={handleVerifyGroup}
+                  disabled={verifying || !verifyGroupId || !verifyAccountId}
+                >
+                  {verifying ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="mr-2 h-4 w-4" />
+                  )}
+                  Verificar
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {verifyError && (
+            <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {verifyError}
+            </div>
+          )}
+
+          {verifyResult && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Grupo:</span>
+                <span className="text-sm font-medium text-foreground">{verifyResult.title}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">ID:</span>
+                <span className="text-sm font-mono text-foreground">{verifyResult.telegram_id}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Total de mensagens:</span>
+                <span className="text-lg font-bold text-foreground">{verifyResult.message_count.toLocaleString('pt-BR')}</span>
+              </div>
+              <div className="border-t border-border pt-3 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Crédito necessário:</span>
+                <span className={`text-sm font-bold ${
+                  verifyResult.credit_tier === 'basic' ? 'text-green-500' :
+                  verifyResult.credit_tier === 'standard' ? 'text-blue-500' : 'text-purple-500'
+                }`}>
+                  1x {verifyResult.credit_tier_label}
+                </span>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Buy Credits */}
+      <Card className="border-primary/30">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="h-5 w-5 text-primary" />
+            <CardTitle className="text-base">Adquirir Créditos</CardTitle>
+          </div>
+          <CardDescription>
+            Compre créditos adicionais para continuar clonando
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
           <div className="text-sm text-muted-foreground space-y-2">
             <p><strong>Como funciona:</strong></p>
             <ul className="list-disc list-inside space-y-1 ml-2">
