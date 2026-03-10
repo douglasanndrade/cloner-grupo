@@ -495,33 +495,28 @@ class CloneEngine:
             )
             file_path = os.path.join(temp_dir, f"msg_{msg.id}")
 
-            # Progress callback for large files
-            last_log_time = [time.time()]
             total_size = media_size or 0
+
+            # Progress callback for large files (>10MB)
+            dl_last_log = [time.time()]
 
             def dl_progress(received, total):
                 now = time.time()
-                if now - last_log_time[0] >= 5:  # Log every 5 seconds
-                    last_log_time[0] = now
+                if now - dl_last_log[0] >= 5:
+                    dl_last_log[0] = now
                     pct = int((received / total) * 100) if total else 0
                     mb_done = received // (1024 * 1024)
                     mb_total = total // (1024 * 1024)
-                    import asyncio
+                    # Fire-and-forget log
                     asyncio.get_event_loop().create_task(
                         log(db, "info",
                             f"[{progress}/{job.total_messages}] Download msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)",
                             job_id=self.job_id)
                     )
 
-            # Use larger part size for big files (512KB instead of default 64KB)
-            dl_kwargs = {}
-            if total_size > 50 * 1024 * 1024:  # > 50MB
-                dl_kwargs["part_size_kb"] = 512
-
             downloaded = await client.download_media(
                 msg, file=file_path,
                 progress_callback=dl_progress if total_size > 10 * 1024 * 1024 else None,
-                **dl_kwargs,
             )
             if not downloaded:
                 await self._save_item(db, job, msg, "error", error_msg="Download falhou - arquivo vazio")
@@ -552,14 +547,13 @@ class CloneEngine:
                     pct = int((sent / total) * 100) if total else 0
                     mb_done = sent // (1024 * 1024)
                     mb_total = total // (1024 * 1024)
-                    import asyncio
                     asyncio.get_event_loop().create_task(
                         log(db, "info",
                             f"[{progress}/{job.total_messages}] Upload msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)",
                             job_id=self.job_id)
                     )
 
-            # For large files, upload with bigger part size first
+            # For large files (>50MB), pre-upload with larger part size for speed
             if file_size_mb > 50:
                 uploaded = await client.upload_file(
                     downloaded,
