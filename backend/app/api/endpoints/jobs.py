@@ -155,11 +155,16 @@ async def cancel_job(job_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.delete("/{job_id}")
 async def delete_job(job_id: int, db: AsyncSession = Depends(get_db)):
+    from app.models.payment import Payment
     job = await db.get(CloneJob, job_id)
     if not job:
         raise HTTPException(404, "Job não encontrado")
     if job.status in ("running", "validating"):
         raise HTTPException(400, "Não é possível excluir um job em execução. Cancele primeiro.")
+    # Deletar payments vinculados antes de deletar o job
+    result = await db.execute(select(Payment).where(Payment.job_id == job_id))
+    for payment in result.scalars().all():
+        await db.delete(payment)
     await db.delete(job)
     await db.commit()
     return {"data": None, "message": f"Job #{job_id} excluído com sucesso"}

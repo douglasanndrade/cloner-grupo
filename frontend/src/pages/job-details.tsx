@@ -80,12 +80,14 @@ export function JobDetailsPage() {
     logsApi.list({ job_id: jobId, per_page: 100 }).then((res) => setHistoricLogs(res.data)).catch(() => {})
   }, [jobId])
 
-  // Poll job status (also poll awaiting_payment to detect webhook confirmation)
+  // Poll job + items + logs em tempo real enquanto tiver ativo
   useEffect(() => {
-    if (!['running', 'validating', 'awaiting_payment'].includes(job.status)) return
+    if (!['running', 'validating', 'awaiting_payment', 'pending'].includes(job.status)) return
     const interval = setInterval(() => {
       jobsApi.get(jobId).then((res) => setJob(res.data)).catch(() => {})
-    }, 5000)
+      jobsApi.items(jobId).then((res) => setItems(res.data)).catch(() => {})
+      logsApi.list({ job_id: jobId, per_page: 100 }).then((res) => setHistoricLogs(res.data)).catch(() => {})
+    }, 3000)
     return () => clearInterval(interval)
   }, [jobId, job.status])
 
