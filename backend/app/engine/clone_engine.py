@@ -645,6 +645,7 @@ class CloneEngine:
             total_size = media_size or 0
 
             # Progress callback for large files (>10MB) — uses separate db session
+            dl_start_time = [time.time()]
             dl_last_log = [time.time()]
             engine_ref = self  # capture for closure
 
@@ -652,12 +653,23 @@ class CloneEngine:
                 now = time.time()
                 if now - dl_last_log[0] >= 5:
                     dl_last_log[0] = now
-                    pct = int((received / total) * 100) if total else 0
-                    mb_done = received // (1024 * 1024)
-                    mb_total = total // (1024 * 1024) if total else 0
+                    mb_done = received / (1024 * 1024)
+                    elapsed = now - dl_start_time[0]
+                    speed = received / elapsed if elapsed > 0 else 0
+                    speed_mb = speed / (1024 * 1024)
+                    real_total = total or total_size
+                    if real_total and speed > 0:
+                        remaining = real_total - received
+                        eta_sec = int(remaining / speed)
+                        eta_min = eta_sec // 60
+                        eta_s = eta_sec % 60
+                        pct = int((received / real_total) * 100)
+                        mb_total = real_total / (1024 * 1024)
+                        msg_text = f"[{progress}/{job.total_messages}] ⬇ Download msg {msg.id}: {mb_done:.0f}MB/{mb_total:.0f}MB ({pct}%) | {speed_mb:.1f} MB/s | ETA {eta_min}m{eta_s:02d}s"
+                    else:
+                        msg_text = f"[{progress}/{job.total_messages}] ⬇ Download msg {msg.id}: {mb_done:.0f}MB | {speed_mb:.1f} MB/s"
                     asyncio.get_event_loop().create_task(
-                        engine_ref._log_progress_bg("info",
-                            f"[{progress}/{job.total_messages}] ⬇ Download msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)")
+                        engine_ref._log_progress_bg("info", msg_text)
                     )
 
             # For large files (>50MB), use download_file with larger part_size
@@ -712,18 +724,31 @@ class CloneEngine:
             caption = msg.text or ""
 
             # Progress callback for upload — uses separate db session
+            ul_start_time = [time.time()]
             ul_last_log = [time.time()]
+            file_size_bytes = os.path.getsize(downloaded) if os.path.exists(downloaded) else 0
 
             def ul_progress(sent, total):
                 now = time.time()
                 if now - ul_last_log[0] >= 5:
                     ul_last_log[0] = now
-                    pct = int((sent / total) * 100) if total else 0
-                    mb_done = sent // (1024 * 1024)
-                    mb_total = total // (1024 * 1024) if total else 0
+                    mb_done = sent / (1024 * 1024)
+                    elapsed = now - ul_start_time[0]
+                    speed = sent / elapsed if elapsed > 0 else 0
+                    speed_mb = speed / (1024 * 1024)
+                    real_total = total or file_size_bytes
+                    if real_total and speed > 0:
+                        remaining = real_total - sent
+                        eta_sec = int(remaining / speed)
+                        eta_min = eta_sec // 60
+                        eta_s = eta_sec % 60
+                        pct = int((sent / real_total) * 100)
+                        mb_total = real_total / (1024 * 1024)
+                        msg_text = f"[{progress}/{job.total_messages}] ⬆ Upload msg {msg.id}: {mb_done:.0f}MB/{mb_total:.0f}MB ({pct}%) | {speed_mb:.1f} MB/s | ETA {eta_min}m{eta_s:02d}s"
+                    else:
+                        msg_text = f"[{progress}/{job.total_messages}] ⬆ Upload msg {msg.id}: {mb_done:.0f}MB | {speed_mb:.1f} MB/s"
                     asyncio.get_event_loop().create_task(
-                        engine_ref._log_progress_bg("info",
-                            f"[{progress}/{job.total_messages}] ⬆ Upload msg {msg.id}: {mb_done}MB/{mb_total}MB ({pct}%)")
+                        engine_ref._log_progress_bg("info", msg_text)
                     )
 
             # For large files (>50MB), pre-upload with larger part size for speed
