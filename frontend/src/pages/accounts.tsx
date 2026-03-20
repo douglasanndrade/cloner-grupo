@@ -30,25 +30,8 @@ import {
 import { accountsApi } from '@/services/api'
 import type { TelegramAccount, LoginStep } from '@/types'
 
-// Mock accounts for initial display
-const mockAccounts: TelegramAccount[] = [
-  {
-    id: 1,
-    phone: '+55 62 98263-0175',
-    username: 'user_one',
-    first_name: 'Douglas',
-    last_name: null,
-    is_premium: false,
-    is_active: true,
-    session_file: 'sessions/session_1.session',
-    created_at: '2026-03-01T10:00:00Z',
-    updated_at: '2026-03-10T08:00:00Z',
-    notes: null,
-  },
-]
-
 export function AccountsPage() {
-  const [accounts, setAccounts] = useState<TelegramAccount[]>(mockAccounts)
+  const [accounts, setAccounts] = useState<TelegramAccount[]>([])
   const [showLoginDialog, setShowLoginDialog] = useState(false)
   const [loginStep, setLoginStep] = useState<LoginStep>('phone')
   const [loginForm, setLoginForm] = useState({
@@ -97,7 +80,7 @@ export function AccountsPage() {
         setAccounts(unique)
         checkAllStatuses(unique)
       })
-      .catch(() => {/* keep mock */})
+      .catch(() => {})
   }, [])
 
   const handleReconnect = async (account: TelegramAccount) => {

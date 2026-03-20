@@ -33,41 +33,26 @@ import { useJobLogs } from '@/hooks/use-websocket'
 import { formatNumber, formatBytes, formatDuration } from '@/lib/utils'
 import type { CloneJob, CloneJobItem, LogEntry } from '@/types'
 
-// Mock
-const mockJob: CloneJob = {
-  id: 1, name: 'Clone Canal Notícias', source_entity_id: 1, source_title: '@noticias_tech',
-  destination_entity_id: 2, destination_title: '@backup_noticias', account_id: 1,
-  account_phone: '+55 11 99999-0001', mode: 'forward', status: 'running',
-  import_history: true, monitor_new: true, last_message_id: 4521,
-  total_messages: 5000, processed_count: 4521, error_count: 3, skipped_count: 0,
-  incompatible_count: 0, started_at: '2026-03-10T08:00:00Z', finished_at: null,
-  created_at: '2026-03-10T07:55:00Z', updated_at: '2026-03-10T10:30:00Z',
+const emptyJob: CloneJob = {
+  id: 0, name: '', source_entity_id: 0, source_title: '',
+  destination_entity_id: 0, destination_title: '', account_id: 0,
+  account_phone: '', mode: 'forward', status: 'pending',
+  import_history: false, monitor_new: false, last_message_id: null,
+  total_messages: 0, processed_count: 0, error_count: 0, skipped_count: 0,
+  incompatible_count: 0, started_at: null, finished_at: null,
+  created_at: '', updated_at: '',
   send_interval_ms: 1000, max_concurrency: 1, temp_directory: '/tmp/cloner',
   oversized_policy: 'skip', notes: null,
 }
-
-const mockItems: CloneJobItem[] = [
-  { id: 1, job_id: 1, source_message_id: 4519, grouped_id: null, media_type: 'photo', media_size: 524288, status: 'success', error_message: null, destination_message_id: 1019, processed_at: '2026-03-10T10:29:00Z', created_at: '2026-03-10T10:29:00Z' },
-  { id: 2, job_id: 1, source_message_id: 4520, grouped_id: 'album_123', media_type: 'video', media_size: 157286400, status: 'success', error_message: null, destination_message_id: 1020, processed_at: '2026-03-10T10:29:30Z', created_at: '2026-03-10T10:29:30Z' },
-  { id: 3, job_id: 1, source_message_id: 4521, grouped_id: null, media_type: 'document', media_size: 2684354560, status: 'incompatible', error_message: 'Arquivo de 2.5 GB excede limite da conta (2 GB)', destination_message_id: null, processed_at: '2026-03-10T10:30:00Z', created_at: '2026-03-10T10:30:00Z' },
-]
-
-const mockLogs: LogEntry[] = [
-  { id: 1, job_id: 1, level: 'info', message: 'Job iniciado — modo forward', details: null, created_at: '2026-03-10T08:00:00Z' },
-  { id: 2, job_id: 1, level: 'success', message: 'Mensagem #4519 encaminhada com sucesso', details: null, created_at: '2026-03-10T10:29:00Z' },
-  { id: 3, job_id: 1, level: 'success', message: 'Álbum (grouped_id: album_123) encaminhado — 3 itens', details: null, created_at: '2026-03-10T10:29:30Z' },
-  { id: 4, job_id: 1, level: 'warning', message: 'FloodWaitError: aguardando 15s', details: 'telethon.errors.FloodWaitError', created_at: '2026-03-10T10:29:45Z' },
-  { id: 5, job_id: 1, level: 'error', message: 'Mídia msg #4521 incompatível — 2.5 GB excede limite de 2 GB', details: null, created_at: '2026-03-10T10:30:00Z' },
-]
 
 export function JobDetailsPage() {
   const { id } = useParams<{ id: string }>()
   const jobId = Number(id)
   const navigate = useNavigate()
 
-  const [job, setJob] = useState<CloneJob>(mockJob)
-  const [items, setItems] = useState<CloneJobItem[]>(mockItems)
-  const [historicLogs, setHistoricLogs] = useState<LogEntry[]>(mockLogs)
+  const [job, setJob] = useState<CloneJob>(emptyJob)
+  const [items, setItems] = useState<CloneJobItem[]>([])
+  const [historicLogs, setHistoricLogs] = useState<LogEntry[]>([])
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [reconnecting, setReconnecting] = useState(false)
   const [reconnectResult, setReconnectResult] = useState<'success' | 'failed' | null>(null)

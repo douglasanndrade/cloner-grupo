@@ -27,45 +27,8 @@ import type { MouseEvent } from 'react'
 import { formatNumber } from '@/lib/utils'
 import type { CloneJob, JobStatus } from '@/types'
 
-// Mock data
-const mockJobs: CloneJob[] = [
-  {
-    id: 1, name: 'Clone Canal Notícias', source_entity_id: 1, source_title: '@noticias_tech',
-    destination_entity_id: 2, destination_title: '@backup_noticias', account_id: 1,
-    account_phone: '+55 11 99999-0001', mode: 'forward', status: 'running',
-    import_history: true, monitor_new: true, last_message_id: 4521,
-    total_messages: 5000, processed_count: 4521, error_count: 3, skipped_count: 0,
-    incompatible_count: 0, started_at: '2026-03-10T08:00:00Z', finished_at: null,
-    created_at: '2026-03-10T07:55:00Z', updated_at: '2026-03-10T10:30:00Z',
-    send_interval_ms: 1000, max_concurrency: 1, temp_directory: '/tmp/cloner',
-    oversized_policy: 'skip', notes: null,
-  },
-  {
-    id: 2, name: 'Backup Grupo Premium', source_entity_id: 3, source_title: '@grupo_premium',
-    destination_entity_id: 4, destination_title: '@grupo_backup', account_id: 1,
-    account_phone: '+55 11 99999-0001', mode: 'reupload', status: 'completed',
-    import_history: true, monitor_new: false, last_message_id: 12000,
-    total_messages: 12000, processed_count: 11950, error_count: 12, skipped_count: 8,
-    incompatible_count: 30, started_at: '2026-03-09T14:00:00Z',
-    finished_at: '2026-03-09T22:30:00Z', created_at: '2026-03-09T13:55:00Z',
-    updated_at: '2026-03-09T22:30:00Z', send_interval_ms: 1500, max_concurrency: 1,
-    temp_directory: '/tmp/cloner', oversized_policy: 'skip', notes: null,
-  },
-  {
-    id: 3, name: 'Canal de Vídeos', source_entity_id: 5, source_title: '@videos_hd',
-    destination_entity_id: 6, destination_title: '@videos_archive', account_id: 2,
-    account_phone: '+55 11 99999-0002', mode: 'reupload', status: 'paused',
-    import_history: true, monitor_new: true, last_message_id: 800,
-    total_messages: 3200, processed_count: 800, error_count: 5, skipped_count: 2,
-    incompatible_count: 15, started_at: '2026-03-10T06:00:00Z', finished_at: null,
-    created_at: '2026-03-10T05:55:00Z', updated_at: '2026-03-10T09:15:00Z',
-    send_interval_ms: 2000, max_concurrency: 1, temp_directory: '/tmp/cloner',
-    oversized_policy: 'skip', notes: 'Pausado manualmente - muitos vídeos acima de 2GB',
-  },
-]
-
 export function JobsPage() {
-  const [jobs, setJobs] = useState<CloneJob[]>(mockJobs)
+  const [jobs, setJobs] = useState<CloneJob[]>([])
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(false)
@@ -74,7 +37,7 @@ export function JobsPage() {
     setLoading(true)
     jobsApi.list({ status: statusFilter === 'all' ? undefined : statusFilter })
       .then((res) => setJobs(res.data))
-      .catch(() => {/* keep mock */})
+      .catch(() => {})
       .finally(() => setLoading(false))
   }
 

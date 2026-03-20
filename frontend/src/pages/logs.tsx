@@ -22,19 +22,8 @@ import {
 import { logsApi } from '@/services/api'
 import type { LogEntry, LogLevel } from '@/types'
 
-const mockLogs: LogEntry[] = [
-  { id: 1, job_id: 1, level: 'info', message: 'Job "Clone Canal Notícias" iniciado — modo forward', details: null, created_at: '2026-03-10T08:00:00Z' },
-  { id: 2, job_id: 1, level: 'success', message: 'Mensagem #4500 encaminhada com sucesso', details: null, created_at: '2026-03-10T10:15:00Z' },
-  { id: 3, job_id: 1, level: 'warning', message: 'FloodWaitError: aguardando 15s antes de continuar', details: 'telethon.errors.FloodWaitError: A wait of 15 seconds is required', created_at: '2026-03-10T10:20:00Z' },
-  { id: 4, job_id: 2, level: 'error', message: 'Falha no download da mídia msg #8500 — timeout', details: 'asyncio.TimeoutError', created_at: '2026-03-10T10:22:00Z' },
-  { id: 5, job_id: 3, level: 'warning', message: 'Mídia msg #801 — arquivo de 2.3 GB excede limite da conta (2 GB)', details: null, created_at: '2026-03-10T10:25:00Z' },
-  { id: 6, job_id: 1, level: 'success', message: 'Álbum (grouped_id: 99281) encaminhado — 4 itens', details: null, created_at: '2026-03-10T10:28:00Z' },
-  { id: 7, job_id: null, level: 'info', message: 'Conta +55 11 99999-0001 reconectada após queda de rede', details: null, created_at: '2026-03-10T10:30:00Z' },
-  { id: 8, job_id: 2, level: 'info', message: 'Job "Backup Grupo Premium" concluído — 11950/12000 mensagens', details: null, created_at: '2026-03-09T22:30:00Z' },
-]
-
 export function LogsPage() {
-  const [logs, setLogs] = useState<LogEntry[]>(mockLogs)
+  const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [levelFilter, setLevelFilter] = useState<string>('all')
   const [jobFilter, setJobFilter] = useState('')

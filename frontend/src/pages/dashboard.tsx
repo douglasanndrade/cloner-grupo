@@ -42,40 +42,35 @@ const COLORS: Record<JobStatus, string> = {
   validating: '#3b82f6',
 }
 
-// Mock data for initial display
-const mockStats: DashboardStats = {
-  active_jobs: 2,
-  completed_jobs: 15,
-  total_jobs: 20,
-  total_messages_processed: 45230,
-  success_rate: 97.5,
-  active_accounts: 3,
-  recent_errors: [
-    { id: 1, job_id: 5, level: 'error', message: 'FloodWaitError: aguardando 45s antes de reenviar', details: null, created_at: '2026-03-10T10:30:00Z' },
-    { id: 2, job_id: 3, level: 'warning', message: 'Mídia de 2.3 GB excede limite da conta (2 GB)', details: null, created_at: '2026-03-10T10:28:00Z' },
-    { id: 3, job_id: 5, level: 'error', message: 'Falha no download: timeout após 30s', details: null, created_at: '2026-03-10T10:25:00Z' },
-  ],
+const emptyStats: DashboardStats = {
+  active_jobs: 0,
+  completed_jobs: 0,
+  total_jobs: 0,
+  total_messages_processed: 0,
+  success_rate: 0,
+  active_accounts: 0,
+  recent_errors: [],
   jobs_by_status: {
     awaiting_payment: 0,
-    pending: 1,
+    pending: 0,
     validating: 0,
-    running: 2,
-    paused: 1,
-    completed: 15,
-    failed: 1,
+    running: 0,
+    paused: 0,
+    completed: 0,
+    failed: 0,
     cancelled: 0,
   },
 }
 
 export function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats>(mockStats)
-  const [_loading, setLoading] = useState(false)
+  const [stats, setStats] = useState<DashboardStats>(emptyStats)
+  const [_loading, setLoading] = useState(true)
 
   useEffect(() => {
     setLoading(true)
     dashboardApi.stats()
       .then((res) => setStats(res.data))
-      .catch(() => {/* keep mock data */})
+      .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
