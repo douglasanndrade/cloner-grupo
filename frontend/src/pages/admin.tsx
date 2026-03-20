@@ -1,0 +1,729 @@
+import { useState, useEffect } from 'react'
+import {
+  Eye,
+  Plus,
+  Trash2,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  Shield,
+  ShieldOff,
+  Users,
+  Copy,
+  Coins,
+  ArrowLeft,
+  Pencil,
+  X,
+  ScrollText,
+  Activity,
+} from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { adminApi } from '@/services/api'
+import { cn } from '@/lib/utils'
+
+interface AdminUser {
+  id: number
+  username: string
+  is_admin: boolean
+  credits_basic: number
+  credits_standard: number
+  credits_premium: number
+  total_credits: number
+  total_jobs: number
+  active_jobs: number
+  created_at: string | null
+}
+
+interface UserDetail {
+  user: {
+    id: number
+    username: string
+    is_admin: boolean
+    credits_basic: number
+    credits_standard: number
+    credits_premium: number
+    created_at: string | null
+  }
+  stats: {
+    total_jobs: number
+    active_jobs: number
+    completed_jobs: number
+    failed_jobs: number
+    total_messages_processed: number
+    total_errors: number
+  }
+  jobs: {
+    id: number
+    name: string
+    source_title: string
+    destination_title: string
+    account_phone: string
+    mode: string
+    status: string
+    total_messages: number
+    processed_count: number
+    error_count: number
+    skipped_count: number
+    created_at: string | null
+    started_at: string | null
+    finished_at: string | null
+  }[]
+  recent_logs: {
+    id: number
+    job_id: number
+    level: string
+    message: string
+    details: string | null
+    created_at: string | null
+  }[]
+}
+
+const statusColors: Record<string, string> = {
+  running: 'text-blue-400 bg-blue-400/10 border-blue-400/30',
+  pending: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30',
+  completed: 'text-green-400 bg-green-400/10 border-green-400/30',
+  failed: 'text-red-400 bg-red-400/10 border-red-400/30',
+  cancelled: 'text-gray-400 bg-gray-400/10 border-gray-400/30',
+  paused: 'text-orange-400 bg-orange-400/10 border-orange-400/30',
+  validating: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/30',
+}
+
+const logLevelColors: Record<string, string> = {
+  info: 'text-blue-400',
+  success: 'text-green-400',
+  warning: 'text-yellow-400',
+  error: 'text-red-400',
+  debug: 'text-gray-400',
+}
+
+export function AdminPage() {
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  // God-eye view
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
+  const [userDetail, setUserDetail] = useState<UserDetail | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+
+  // Create user dialog
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [newUsername, setNewUsername] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [newIsAdmin, setNewIsAdmin] = useState(false)
+  const [newCreditsBasic, setNewCreditsBasic] = useState('50')
+  const [newCreditsStandard, setNewCreditsStandard] = useState('50')
+  const [newCreditsPremium, setNewCreditsPremium] = useState('50')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
+
+  // Edit credits dialog
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
+  const [editBasic, setEditBasic] = useState('')
+  const [editStandard, setEditStandard] = useState('')
+  const [editPremium, setEditPremium] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const [message, setMessage] = useState('')
+
+  const fetchUsers = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await adminApi.listUsers()
+      setUsers(res.data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar usuários')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchUsers()
+  }, [])
+
+  const openGodEye = async (userId: number) => {
+    setSelectedUserId(userId)
+    setLoadingDetail(true)
+    setUserDetail(null)
+    try {
+      const res = await adminApi.getUser(userId)
+      setUserDetail(res.data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar detalhes')
+    } finally {
+      setLoadingDetail(false)
+    }
+  }
+
+  const handleCreateUser = async () => {
+    if (!newUsername.trim() || !newPassword.trim()) {
+      setCreateError('Preencha todos os campos')
+      return
+    }
+    setCreating(true)
+    setCreateError('')
+    try {
+      await adminApi.createUser({
+        username: newUsername.trim(),
+        password: newPassword,
+        is_admin: newIsAdmin,
+        credits_basic: Number(newCreditsBasic) || 0,
+        credits_standard: Number(newCreditsStandard) || 0,
+        credits_premium: Number(newCreditsPremium) || 0,
+      })
+      setShowCreateDialog(false)
+      setNewUsername('')
+      setNewPassword('')
+      setNewIsAdmin(false)
+      setNewCreditsBasic('50')
+      setNewCreditsStandard('50')
+      setNewCreditsPremium('50')
+      setMessage('Usuário criado com sucesso!')
+      fetchUsers()
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Erro ao criar')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleDeleteUser = async (userId: number, username: string) => {
+    if (!confirm(`Tem certeza que deseja excluir o usuário "${username}"?`)) return
+    try {
+      await adminApi.deleteUser(userId)
+      setMessage(`Usuário ${username} excluído`)
+      if (selectedUserId === userId) {
+        setSelectedUserId(null)
+        setUserDetail(null)
+      }
+      fetchUsers()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao excluir')
+    }
+  }
+
+  const openEditCredits = (user: AdminUser) => {
+    setEditingUser(user)
+    setEditBasic(String(user.credits_basic))
+    setEditStandard(String(user.credits_standard))
+    setEditPremium(String(user.credits_premium))
+  }
+
+  const handleSaveCredits = async () => {
+    if (!editingUser) return
+    setSaving(true)
+    try {
+      await adminApi.updateUser(editingUser.id, {
+        credits_basic: Number(editBasic),
+        credits_standard: Number(editStandard),
+        credits_premium: Number(editPremium),
+      })
+      setEditingUser(null)
+      setMessage('Créditos atualizados!')
+      fetchUsers()
+      if (selectedUserId === editingUser.id) openGodEye(editingUser.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggleAdmin = async (user: AdminUser) => {
+    try {
+      await adminApi.updateUser(user.id, { is_admin: !user.is_admin })
+      setMessage(`${user.username} ${!user.is_admin ? 'agora é admin' : 'não é mais admin'}`)
+      fetchUsers()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao alterar')
+    }
+  }
+
+  const formatDate = (d: string | null) => {
+    if (!d) return '—'
+    return new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+
+  // Clear messages after 4s
+  useEffect(() => {
+    if (message) {
+      const t = setTimeout(() => setMessage(''), 4000)
+      return () => clearTimeout(t)
+    }
+  }, [message])
+
+  // ---- GOD-EYE VIEW ----
+  if (selectedUserId && userDetail) {
+    const u = userDetail.user
+    const s = userDetail.stats
+    return (
+      <div className="max-w-5xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => { setSelectedUserId(null); setUserDetail(null) }}>
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-primary" />
+              <h1 className="text-2xl font-bold text-foreground">{u.username}</h1>
+              {u.is_admin && <Badge variant="info">Admin</Badge>}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Membro desde {formatDate(u.created_at)}
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => openGodEye(selectedUserId)}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Atualizar
+          </Button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid gap-4 md:grid-cols-4">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                  <Copy className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{s.total_jobs}</p>
+                  <p className="text-xs text-muted-foreground">Total Jobs</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/10">
+                  <Activity className="h-5 w-5 text-blue-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{s.active_jobs}</p>
+                  <p className="text-xs text-muted-foreground">Ativos</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
+                  <CheckCircle2 className="h-5 w-5 text-green-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{s.total_messages_processed.toLocaleString('pt-BR')}</p>
+                  <p className="text-xs text-muted-foreground">Mensagens</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500/10">
+                  <Coins className="h-5 w-5 text-yellow-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{u.credits_basic + u.credits_standard + u.credits_premium}</p>
+                  <p className="text-xs text-muted-foreground">Créditos</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Credits detail */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Créditos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3">
+                <p className="text-2xl font-bold">{u.credits_basic}</p>
+                <p className="text-xs text-muted-foreground">Básico</p>
+              </div>
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3">
+                <p className="text-2xl font-bold">{u.credits_standard}</p>
+                <p className="text-xs text-muted-foreground">Standard</p>
+              </div>
+              <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-3">
+                <p className="text-2xl font-bold">{u.credits_premium}</p>
+                <p className="text-xs text-muted-foreground">Premium</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Jobs */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Copy className="h-4 w-4" />
+              Jobs ({userDetail.jobs.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {userDetail.jobs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Nenhum job encontrado</p>
+            ) : (
+              <div className="space-y-2">
+                {userDetail.jobs.map((job) => (
+                  <div key={job.id} className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-surface-hover transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-foreground truncate">{job.name}</span>
+                        <Badge variant="outline" className={cn('text-xs', statusColors[job.status] || '')}>
+                          {job.status}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {job.source_title} → {job.destination_title}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-mono text-foreground">
+                        {job.processed_count}/{job.total_messages}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{formatDate(job.created_at)}</p>
+                    </div>
+                    {job.error_count > 0 && (
+                      <Badge variant="error" className="shrink-0">{job.error_count} erros</Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent Logs */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <ScrollText className="h-4 w-4" />
+              Logs Recentes ({userDetail.recent_logs.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {userDetail.recent_logs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Nenhum log</p>
+            ) : (
+              <div className="space-y-1 max-h-[400px] overflow-y-auto">
+                {userDetail.recent_logs.map((log) => (
+                  <div key={log.id} className="flex items-start gap-2 px-2 py-1.5 rounded text-xs hover:bg-surface-hover">
+                    <span className={cn('font-mono font-bold uppercase w-14 shrink-0', logLevelColors[log.level] || 'text-gray-400')}>
+                      {log.level}
+                    </span>
+                    <span className="text-muted-foreground shrink-0 font-mono">
+                      J#{log.job_id}
+                    </span>
+                    <span className="text-foreground flex-1 break-all">{log.message}</span>
+                    <span className="text-muted shrink-0">{formatDate(log.created_at)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // ---- LOADING GOD-EYE ----
+  if (selectedUserId && loadingDetail) {
+    return (
+      <div className="flex items-center justify-center py-20 gap-3 text-muted-foreground">
+        <RefreshCw className="h-5 w-5 animate-spin" />
+        <span>Carregando visão completa...</span>
+      </div>
+    )
+  }
+
+  // ---- USER LIST ----
+  return (
+    <div className="max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <Shield className="h-6 w-6 text-primary" />
+            Painel Admin
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Gerencie usuários e acompanhe toda a atividade
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={fetchUsers} disabled={loading}>
+            <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} />
+            Atualizar
+          </Button>
+          <Button onClick={() => setShowCreateDialog(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Novo Usuário
+          </Button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      {message && (
+        <div className="flex items-center gap-2 rounded-lg bg-success/10 border border-success/20 p-3 text-sm text-success">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          {message}
+        </div>
+      )}
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {error}
+          <button onClick={() => setError('')} className="ml-auto"><X className="h-4 w-4" /></button>
+        </div>
+      )}
+
+      {/* Stats Summary */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Users className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-2xl font-bold">{users.length}</p>
+                <p className="text-xs text-muted-foreground">Total Usuários</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Activity className="h-5 w-5 text-blue-400" />
+              <div>
+                <p className="text-2xl font-bold">{users.reduce((a, u) => a + u.active_jobs, 0)}</p>
+                <p className="text-xs text-muted-foreground">Jobs Ativos</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <Coins className="h-5 w-5 text-yellow-400" />
+              <div>
+                <p className="text-2xl font-bold">{users.reduce((a, u) => a + u.total_credits, 0)}</p>
+                <p className="text-xs text-muted-foreground">Créditos Totais</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* User List */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Usuários</CardTitle>
+          <CardDescription>Clique no olho para ver tudo que o lead faz</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Carregando...
+            </div>
+          ) : users.length === 0 ? (
+            <p className="text-center text-sm text-muted-foreground py-10">Nenhum usuário</p>
+          ) : (
+            <div className="space-y-2">
+              {users.map((user) => (
+                <div
+                  key={user.id}
+                  className="flex items-center gap-3 rounded-lg border border-border p-4 hover:bg-surface-hover transition-colors"
+                >
+                  {/* Avatar */}
+                  <div className={cn(
+                    'flex h-10 w-10 items-center justify-center rounded-full shrink-0 font-bold text-sm',
+                    user.is_admin ? 'bg-primary/15 text-primary' : 'bg-surface text-muted-foreground'
+                  )}>
+                    {user.username[0]?.toUpperCase() || '?'}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-foreground truncate">{user.username}</span>
+                      {user.is_admin && <Badge variant="info" className="text-[10px]">Admin</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {user.total_jobs} jobs · {user.active_jobs} ativos · Desde {formatDate(user.created_at)}
+                    </p>
+                  </div>
+
+                  {/* Credits */}
+                  <div className="hidden md:flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-green-400 font-mono">B:{user.credits_basic}</span>
+                    <span className="text-xs text-blue-400 font-mono">S:{user.credits_standard}</span>
+                    <span className="text-xs text-purple-400 font-mono">P:{user.credits_premium}</span>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openGodEye(user.id)}
+                      title="Ver tudo (God Eye)"
+                      className="text-primary hover:text-primary hover:bg-primary/10"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openEditCredits(user)}
+                      title="Editar créditos"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => toggleAdmin(user)}
+                      title={user.is_admin ? 'Remover admin' : 'Tornar admin'}
+                    >
+                      {user.is_admin ? <ShieldOff className="h-4 w-4" /> : <Shield className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeleteUser(user.id, user.username)}
+                      title="Excluir"
+                      className="text-muted hover:text-error"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create User Dialog */}
+      {showCreateDialog && (
+        <Dialog open onOpenChange={() => setShowCreateDialog(false)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Novo Usuário</DialogTitle>
+              <DialogDescription>Crie uma nova conta de lead</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Usuário / Email</Label>
+                <Input
+                  placeholder="email@exemplo.com"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Senha</Label>
+                <Input
+                  type="password"
+                  placeholder="Mínimo 6 caracteres"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </div>
+              <Separator />
+              <p className="text-xs font-medium text-muted-foreground">Créditos iniciais</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Básico</Label>
+                  <Input type="number" value={newCreditsBasic} onChange={(e) => setNewCreditsBasic(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Standard</Label>
+                  <Input type="number" value={newCreditsStandard} onChange={(e) => setNewCreditsStandard(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Premium</Label>
+                  <Input type="number" value={newCreditsPremium} onChange={(e) => setNewCreditsPremium(e.target.value)} />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newIsAdmin}
+                  onChange={(e) => setNewIsAdmin(e.target.checked)}
+                  className="rounded border-border"
+                />
+                <span className="text-sm">Acesso de administrador</span>
+              </label>
+              {createError && (
+                <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {createError}
+                </div>
+              )}
+              <Button onClick={handleCreateUser} disabled={creating} className="w-full">
+                {creating ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                Criar Usuário
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Edit Credits Dialog */}
+      {editingUser && (
+        <Dialog open onOpenChange={() => setEditingUser(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Créditos de {editingUser.username}</DialogTitle>
+              <DialogDescription>Defina a quantidade de créditos</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Básico</Label>
+                  <Input type="number" value={editBasic} onChange={(e) => setEditBasic(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Standard</Label>
+                  <Input type="number" value={editStandard} onChange={(e) => setEditStandard(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Premium</Label>
+                  <Input type="number" value={editPremium} onChange={(e) => setEditPremium(e.target.value)} />
+                </div>
+              </div>
+              <Button onClick={handleSaveCredits} disabled={saving} className="w-full">
+                {saving ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                Salvar
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  )
+}

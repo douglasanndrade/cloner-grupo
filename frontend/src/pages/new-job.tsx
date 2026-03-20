@@ -34,9 +34,15 @@ import {
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
-import { accountsApi, entitiesApi, jobsApi } from '@/services/api'
+import { accountsApi, entitiesApi, jobsApi, authApi } from '@/services/api'
 import type { TelegramAccount, TelegramEntity, CloneMode } from '@/types'
 import { cn } from '@/lib/utils'
+
+interface UserCredits {
+  basic: number
+  standard: number
+  premium: number
+}
 
 interface TelegramDialog {
   id: number
@@ -98,6 +104,9 @@ export function NewJobPage() {
   const [showDestPicker, setShowDestPicker] = useState(false)
   const [dialogSearch, setDialogSearch] = useState('')
 
+  // User credits
+  const [credits, setCredits] = useState<UserCredits>({ basic: 0, standard: 0, premium: 0 })
+
   const selectedAccount = accounts.find((a) => String(a.id) === accountId)
 
   const loadDialogs = async () => {
@@ -147,6 +156,13 @@ export function NewJobPage() {
   useEffect(() => {
     accountsApi.list()
       .then((res) => setAccounts(res.data))
+      .catch(() => {})
+    authApi.me()
+      .then((res) => setCredits({
+        basic: res.data.credits_basic ?? 0,
+        standard: res.data.credits_standard ?? 0,
+        premium: res.data.credits_premium ?? 0,
+      }))
       .catch(() => {})
   }, [])
 
@@ -202,7 +218,20 @@ export function NewJobPage() {
     }
   }
 
+  // Check if user has enough credits for the detected tier
+  const requiredTier = verifyResult?.credit_tier as keyof UserCredits | undefined
+  const hasEnoughCredits = requiredTier ? credits[requiredTier] >= 1 : false
+
   const handleCreate = async () => {
+    if (!verifyResult) {
+      setError('Verifique o grupo de origem antes de criar o job.')
+      return
+    }
+    if (!hasEnoughCredits) {
+      setError(`Créditos insuficientes. Você precisa de 1 crédito ${verifyResult.credit_tier_label}.`)
+      return
+    }
+
     setLoading(true)
     setError('')
     try {
@@ -221,6 +250,7 @@ export function NewJobPage() {
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         notes: notes || undefined,
+        credit_tier: verifyResult.credit_tier,
       })
       navigate(`/jobs/${jobRes.data.id}`)
     } catch (err) {
@@ -649,6 +679,44 @@ export function NewJobPage() {
         </CardContent>
       </Card>
 
+      {/* Credits Balance */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Seus Créditos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className={cn(
+              'rounded-lg border p-3',
+              requiredTier === 'basic' ? (hasEnoughCredits ? 'border-green-500 bg-green-500/5' : 'border-error bg-error/5') : 'border-border'
+            )}>
+              <p className="text-2xl font-bold text-foreground">{credits.basic}</p>
+              <p className="text-xs text-muted-foreground">Básico</p>
+            </div>
+            <div className={cn(
+              'rounded-lg border p-3',
+              requiredTier === 'standard' ? (hasEnoughCredits ? 'border-blue-500 bg-blue-500/5' : 'border-error bg-error/5') : 'border-border'
+            )}>
+              <p className="text-2xl font-bold text-foreground">{credits.standard}</p>
+              <p className="text-xs text-muted-foreground">Standard</p>
+            </div>
+            <div className={cn(
+              'rounded-lg border p-3',
+              requiredTier === 'premium' ? (hasEnoughCredits ? 'border-purple-500 bg-purple-500/5' : 'border-error bg-error/5') : 'border-border'
+            )}>
+              <p className="text-2xl font-bold text-foreground">{credits.premium}</p>
+              <p className="text-xs text-muted-foreground">Premium</p>
+            </div>
+          </div>
+          {requiredTier && !hasEnoughCredits && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Créditos insuficientes! Você precisa de 1 crédito {verifyResult?.credit_tier_label} para este grupo.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Summary & Submit */}
       <Card className="border-primary/30">
         <CardContent className="p-6">
@@ -668,19 +736,29 @@ export function NewJobPage() {
                 <p>
                   Intervalo: <span className="text-foreground">{sendInterval}ms</span>
                 </p>
+                {verifyResult && (
+                  <p>
+                    Custo: <span className={cn(
+                      'font-medium',
+                      hasEnoughCredits ? 'text-success' : 'text-error'
+                    )}>
+                      1x {verifyResult.credit_tier_label}
+                    </span>
+                  </p>
+                )}
               </div>
             </div>
             <Button
               size="lg"
               onClick={handleCreate}
-              disabled={loading || !name || !sourceIdentifier || !destIdentifier || !accountId}
+              disabled={loading || !name || !sourceIdentifier || !destIdentifier || !accountId || !verifyResult || !hasEnoughCredits}
             >
               {loading ? (
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Copy className="mr-2 h-4 w-4" />
               )}
-              Criar Job
+              {!verifyResult ? 'Verifique a Origem' : !hasEnoughCredits ? 'Sem Créditos' : 'Criar Job'}
             </Button>
           </div>
         </CardContent>

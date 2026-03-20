@@ -12,6 +12,7 @@ import {
   LogOut,
   Zap,
   User,
+  Shield,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
@@ -30,10 +31,15 @@ const navigation = [
   { name: 'Configurações', href: '/settings', icon: Settings },
 ]
 
+const adminNavigation = [
+  { name: 'Painel Admin', href: '/admin', icon: Shield },
+]
+
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useAppStore()
   const logout = useAuthStore((s) => s.logout)
   const username = useAuthStore((s) => s.username)
+  const isAdmin = useAuthStore((s) => s.isAdmin)
   const navigate = useNavigate()
 
   const handleLogout = () => {
@@ -110,6 +116,46 @@ export function Sidebar() {
 
             return link
           })}
+          {isAdmin && (
+            <>
+              <div className={cn('px-3 pt-4 pb-1', sidebarCollapsed && 'px-0')}>
+                {!sidebarCollapsed && (
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Admin</p>
+                )}
+              </div>
+              {adminNavigation.map((item) => {
+                const adminLink = (
+                  <NavLink
+                    key={item.name}
+                    to={item.href}
+                    className={({ isActive }) =>
+                      cn(
+                        'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                        isActive
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-sidebar-foreground hover:bg-sidebar-hover hover:text-foreground',
+                        sidebarCollapsed && 'justify-center px-0'
+                      )
+                    }
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {!sidebarCollapsed && <span>{item.name}</span>}
+                  </NavLink>
+                )
+
+                if (sidebarCollapsed) {
+                  return (
+                    <Tooltip key={item.name}>
+                      <TooltipTrigger asChild>{adminLink}</TooltipTrigger>
+                      <TooltipContent side="right">{item.name}</TooltipContent>
+                    </Tooltip>
+                  )
+                }
+
+                return adminLink
+              })}
+            </>
+          )}
         </nav>
 
         <Separator />
@@ -125,7 +171,7 @@ export function Sidebar() {
                 <p className="text-xs font-medium text-foreground truncate" title={username}>
                   {displayName}
                 </p>
-                <p className="text-[10px] text-muted">Administrador</p>
+                <p className="text-[10px] text-muted">{isAdmin ? 'Administrador' : 'Usuário'}</p>
               </div>
             </div>
           )}

@@ -73,6 +73,7 @@ async def get_me(
     return {
         "data": {
             "username": user.username,
+            "is_admin": getattr(user, 'is_admin', False),
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "credits_basic": getattr(user, 'credits_basic', 0),
             "credits_standard": getattr(user, 'credits_standard', 0),
@@ -115,4 +116,39 @@ async def set_credits(
             "credits_premium": target_user.credits_premium,
         },
         "message": "Créditos atualizados com sucesso",
+    }
+
+
+class AddCreditsRequest(BaseModel):
+    username: str
+    credits_basic: int = 0
+    credits_standard: int = 0
+    credits_premium: int = 0
+
+
+@router.post("/add-credits")
+async def add_credits(
+    body: AddCreditsRequest,
+    username: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add credits to a user (admin). Values can be negative to subtract."""
+    result = await db.execute(select(User).where(User.username == body.username))
+    target_user = result.scalar_one_or_none()
+    if target_user is None:
+        raise HTTPException(404, "Usuário não encontrado")
+
+    target_user.credits_basic = max(0, target_user.credits_basic + body.credits_basic)
+    target_user.credits_standard = max(0, target_user.credits_standard + body.credits_standard)
+    target_user.credits_premium = max(0, target_user.credits_premium + body.credits_premium)
+
+    await db.commit()
+    return {
+        "data": {
+            "username": target_user.username,
+            "credits_basic": target_user.credits_basic,
+            "credits_standard": target_user.credits_standard,
+            "credits_premium": target_user.credits_premium,
+        },
+        "message": "Créditos adicionados com sucesso",
     }

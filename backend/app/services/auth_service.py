@@ -51,11 +51,12 @@ async def authenticate(db: AsyncSession, username: str, password: str) -> User |
     return user
 
 
-async def create_user(db: AsyncSession, username: str, password: str) -> User:
+async def create_user(db: AsyncSession, username: str, password: str, is_admin: bool = False) -> User:
     """Create a new user."""
     user = User(
         username=username,
         password_hash=_hash_password(password),
+        is_admin=is_admin,
     )
     db.add(user)
     await db.commit()
@@ -74,4 +75,11 @@ async def ensure_default_user(db: AsyncSession) -> None:
     """Create default admin user if no users exist."""
     count = await get_user_count(db)
     if count == 0:
-        await create_user(db, "douglasanndrade@gmail.com", "#Pedro123")
+        await create_user(db, "douglasanndrade@gmail.com", "#Pedro123", is_admin=True)
+    else:
+        # Ensure first user is admin
+        result = await db.execute(select(User).order_by(User.id).limit(1))
+        first_user = result.scalar_one_or_none()
+        if first_user and not getattr(first_user, 'is_admin', False):
+            first_user.is_admin = True
+            await db.commit()

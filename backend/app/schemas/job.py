@@ -49,6 +49,7 @@ class CreateJobRequest(BaseModel):
     date_from: str | None = None
     date_to: str | None = None
     notes: str | None = None
+    credit_tier: str | None = None  # basic | standard | premium — from verify
 
 
 class JobItemOut(BaseModel):

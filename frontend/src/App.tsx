@@ -12,6 +12,7 @@ import { JobDetailsPage } from '@/pages/job-details'
 import { LogsPage } from '@/pages/logs'
 import { SettingsPage } from '@/pages/settings'
 import { CreditsPage } from '@/pages/credits'
+import { AdminPage } from '@/pages/admin'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,6 +46,7 @@ function App() {
               <Route path="/credits" element={<CreditsPage />} />
               <Route path="/logs" element={<LogsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/admin" element={<AdminPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

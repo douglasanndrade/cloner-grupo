@@ -78,7 +78,7 @@ export const authApi = {
     }),
 
   me: () =>
-    request<ApiResponse<{ username: string; created_at: string | null; credits_basic: number; credits_standard: number; credits_premium: number }>>('/auth/me'),
+    request<ApiResponse<{ username: string; is_admin: boolean; created_at: string | null; credits_basic: number; credits_standard: number; credits_premium: number }>>('/auth/me'),
 
   setCredits: (data: { username: string; credits_basic?: number; credits_standard?: number; credits_premium?: number }) =>
     request<ApiResponse<any>>('/auth/set-credits', {
@@ -90,6 +90,12 @@ export const authApi = {
     request<ApiResponse<null>>('/auth/change-password', {
       method: 'POST',
       body: JSON.stringify({ current_password, new_password }),
+    }),
+
+  addCredits: (data: { username: string; credits_basic: number; credits_standard: number; credits_premium: number }) =>
+    request<ApiResponse<{ username: string; credits_basic: number; credits_standard: number; credits_premium: number }>>('/auth/add-credits', {
+      method: 'POST',
+      body: JSON.stringify(data),
     }),
 }
 
@@ -264,6 +270,35 @@ export const paymentsApi = {
 
   markPaid: (jobId: number) =>
     request<ApiResponse<null>>(`/payments/${jobId}/mark-paid`, { method: 'POST' }),
+}
+
+// ============================================================
+// Admin
+// ============================================================
+
+export const adminApi = {
+  listUsers: () =>
+    request<ApiResponse<any[]>>('/admin/users'),
+
+  getUser: (userId: number) =>
+    request<ApiResponse<any>>(`/admin/users/${userId}`),
+
+  createUser: (data: { username: string; password: string; is_admin?: boolean; credits_basic?: number; credits_standard?: number; credits_premium?: number }) =>
+    request<ApiResponse<any>>('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateUser: (userId: number, data: { password?: string; is_admin?: boolean; credits_basic?: number; credits_standard?: number; credits_premium?: number }) =>
+    request<ApiResponse<any>>(`/admin/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  deleteUser: (userId: number) =>
+    request<ApiResponse<null>>(`/admin/users/${userId}`, {
+      method: 'DELETE',
+    }),
 }
 
 // ============================================================

@@ -10,7 +10,7 @@ from app.engine.worker import start_worker, stop_worker
 
 
 async def ensure_db_columns():
-    """Ensure credits columns exist in users table."""
+    """Ensure new columns exist in tables."""
     from sqlalchemy import text
     from app.db.session import async_session
 
@@ -25,8 +25,14 @@ async def ensure_db_columns():
             await db.execute(text("""
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS credits_premium INTEGER NOT NULL DEFAULT 0;
             """))
+            await db.execute(text("""
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
+            """))
+            await db.execute(text("""
+                ALTER TABLE clone_jobs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);
+            """))
             await db.commit()
-            print("[STARTUP] Credits columns ensured")
+            print("[STARTUP] DB columns ensured")
         except Exception as e:
             print(f"[STARTUP] DB column check warning: {e}")
             await db.rollback()

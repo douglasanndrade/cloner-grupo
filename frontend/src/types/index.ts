@@ -118,6 +118,7 @@ export interface CreateJobRequest {
   date_from?: string
   date_to?: string
   notes?: string
+  credit_tier?: string
 }
 
 // ============================================================

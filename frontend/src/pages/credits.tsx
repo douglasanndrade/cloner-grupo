@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Coins, RefreshCw, ShoppingCart, Search, AlertTriangle } from 'lucide-react'
+import { Coins, RefreshCw, ShoppingCart, Search, AlertTriangle, Plus, CheckCircle2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,104 @@ interface Credits {
   basic: number
   standard: number
   premium: number
+}
+
+function AdminCreditManager({ onCreditsChanged }: { onCreditsChanged: () => void }) {
+  const [targetUsername, setTargetUsername] = useState('')
+  const [addBasic, setAddBasic] = useState('0')
+  const [addStandard, setAddStandard] = useState('0')
+  const [addPremium, setAddPremium] = useState('0')
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  const handleAddCredits = async () => {
+    if (!targetUsername.trim()) {
+      setError('Informe o usuário')
+      return
+    }
+    setSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      const res = await authApi.addCredits({
+        username: targetUsername.trim(),
+        credits_basic: Number(addBasic) || 0,
+        credits_standard: Number(addStandard) || 0,
+        credits_premium: Number(addPremium) || 0,
+      })
+      setMessage(
+        `Créditos atualizados! ${res.data.username}: B:${res.data.credits_basic} S:${res.data.credits_standard} P:${res.data.credits_premium}`
+      )
+      setAddBasic('0')
+      setAddStandard('0')
+      setAddPremium('0')
+      onCreditsChanged()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar créditos')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label>Usuário</Label>
+        <Input
+          placeholder="email ou username do usuário"
+          value={targetUsername}
+          onChange={(e) => setTargetUsername(e.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Básico</Label>
+          <Input
+            type="number"
+            value={addBasic}
+            onChange={(e) => setAddBasic(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Standard</Label>
+          <Input
+            type="number"
+            value={addStandard}
+            onChange={(e) => setAddStandard(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Premium</Label>
+          <Input
+            type="number"
+            value={addPremium}
+            onChange={(e) => setAddPremium(e.target.value)}
+          />
+        </div>
+      </div>
+      <Button onClick={handleAddCredits} disabled={saving} className="w-full">
+        {saving ? (
+          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+          <Plus className="mr-2 h-4 w-4" />
+        )}
+        Adicionar Créditos
+      </Button>
+      {message && (
+        <div className="flex items-center gap-2 rounded-lg bg-success/10 border border-success/20 p-3 text-sm text-success">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          {message}
+        </div>
+      )}
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function CreditsPage() {
@@ -243,27 +341,40 @@ export function CreditsPage() {
         </CardContent>
       </Card>
 
-      {/* Buy Credits */}
+      {/* Admin: Manage Credits */}
       <Card className="border-primary/30">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5 text-primary" />
-            <CardTitle className="text-base">Adquirir Créditos</CardTitle>
+            <Plus className="h-5 w-5 text-primary" />
+            <CardTitle className="text-base">Gerenciar Créditos</CardTitle>
           </div>
           <CardDescription>
-            Compre créditos adicionais para continuar clonando
+            Adicione ou defina créditos para um usuário
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <AdminCreditManager onCreditsChanged={fetchCredits} />
+        </CardContent>
+      </Card>
+
+      {/* Info */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="h-5 w-5 text-muted-foreground" />
+            <CardTitle className="text-base">Como Funcionam os Créditos</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
           <div className="text-sm text-muted-foreground space-y-2">
-            <p><strong>Como funciona:</strong></p>
             <ul className="list-disc list-inside space-y-1 ml-2">
               <li><strong>Básico</strong> — 1 crédito por grupo com até 500 mensagens</li>
               <li><strong>Standard</strong> — 1 crédito por grupo de 501 a 1.000 mensagens</li>
               <li><strong>Premium</strong> — 1 crédito por grupo com mais de 1.000 mensagens</li>
             </ul>
             <p className="mt-3">
-              Para adquirir créditos adicionais, entre em contato com o administrador.
+              O crédito é consumido automaticamente ao criar um novo job de clonagem.
+              Verifique o grupo de origem para saber qual tipo de crédito será necessário.
             </p>
           </div>
         </CardContent>

@@ -30,6 +30,13 @@ export function LoginPage() {
     try {
       const res = await authApi.login({ username: username.trim(), password })
       login(res.data.token, res.data.username)
+      // Fetch admin status
+      try {
+        const meRes = await authApi.me()
+        if (meRes.data.is_admin) {
+          useAuthStore.getState().setAdmin(true)
+        }
+      } catch {}
       navigate('/')
     } catch (err: any) {
       setError(err.message || 'Erro ao fazer login')

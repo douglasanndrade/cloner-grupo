@@ -13,6 +13,9 @@ class CloneJob(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
 
+    # Owner
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+
     # Relations
     source_entity_id: Mapped[int] = mapped_column(ForeignKey("telegram_entities.id"), nullable=False)
     destination_entity_id: Mapped[int] = mapped_column(ForeignKey("telegram_entities.id"), nullable=False)
@@ -57,6 +60,7 @@ class CloneJob(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships
+    user = relationship("User", foreign_keys=[user_id])
     source_entity = relationship("TelegramEntity", foreign_keys=[source_entity_id])
     destination_entity = relationship("TelegramEntity", foreign_keys=[destination_entity_id])
     account = relationship("TelegramAccount", foreign_keys=[account_id])

@@ -11,11 +11,20 @@ from app.db.session import get_db
 from app.models.job import CloneJob
 from app.models.job_item import CloneJobItem
 from app.models.account import TelegramAccount
+from app.models.user import User
 from app.schemas.job import JobOut, CreateJobRequest, JobItemOut
 from app.schemas.common import ApiResponse, PaginatedResponse
 from app.services.entity_service import resolve_entity
+from app.api.deps import require_auth
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+# Credit tier field mapping
+_CREDIT_FIELDS = {
+    "basic": "credits_basic",
+    "standard": "credits_standard",
+    "premium": "credits_premium",
+}
 
 
 @router.get("", response_model=PaginatedResponse[JobOut])
@@ -66,17 +75,50 @@ async def get_job(job_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=ApiResponse[JobOut])
-async def create_job(req: CreateJobRequest, db: AsyncSession = Depends(get_db)):
+async def create_job(
+    req: CreateJobRequest,
+    username: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
     # Validate account
     account = await db.get(TelegramAccount, req.account_id)
     if not account:
         raise HTTPException(400, "Conta não encontrada")
+
+    # Credit validation
+    if not req.credit_tier or req.credit_tier not in _CREDIT_FIELDS:
+        raise HTTPException(
+            400,
+            "Verifique o grupo de origem antes de criar o job (credit_tier obrigatório)",
+        )
+
+    # Load user and check credits
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(401, "Usuário não encontrado")
+
+    credit_field = _CREDIT_FIELDS[req.credit_tier]
+    current_credits = getattr(user, credit_field, 0)
+    if current_credits < 1:
+        tier_labels = {"basic": "Básico", "standard": "Standard", "premium": "Premium"}
+        raise HTTPException(
+            400,
+            f"Créditos insuficientes. Você precisa de 1 crédito {tier_labels[req.credit_tier]} "
+            f"mas possui {current_credits}.",
+        )
+
+    # Deduct 1 credit
+    setattr(user, credit_field, current_credits - 1)
 
     # Resolve source & dest
     try:
         source = await resolve_entity(req.source_identifier, req.account_id, db)
         dest = await resolve_entity(req.destination_identifier, req.account_id, db)
     except ValueError as e:
+        # Refund credit on resolve failure
+        setattr(user, credit_field, current_credits)
+        await db.commit()
         raise HTTPException(400, str(e))
 
     # Parse optional dates
@@ -89,6 +131,7 @@ async def create_job(req: CreateJobRequest, db: AsyncSession = Depends(get_db)):
 
     job = CloneJob(
         name=req.name,
+        user_id=user.id,
         source_entity_id=source.id,
         source_title=source.title,
         destination_entity_id=dest.id,
