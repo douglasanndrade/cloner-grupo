@@ -1,106 +1,119 @@
-"""MundPay webhook endpoint — public (no auth required)."""
+"""SyncPay webhook endpoint — public (no auth required)."""
 import logging
 from datetime import datetime
 from fastapi import APIRouter, Request
 from sqlalchemy import select
 from app.db.session import async_session
-from app.models.payment import Payment
-from app.models.job import CloneJob
+from app.models.credit_purchase import CreditPurchase
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
+# Credit field mapping
+_CREDIT_FIELDS = {
+    "basic": "credits_basic",
+    "standard": "credits_standard",
+    "premium": "credits_premium",
+}
 
-@router.post("/mundpay")
-async def mundpay_webhook(request: Request):
+
+@router.post("/syncpay")
+async def syncpay_webhook(request: Request):
     """
-    Receives payment confirmation from MundPay.
-    Matches by tracking.src field which contains our tracking_ref.
+    Receives payment webhooks from SyncPay.
+    Format: { data: { id, status, amount, ... } }
+    Events: cashin.create (pending), cashin.update (completed/failed/refunded)
     """
     body = await request.json()
+    event = request.headers.get("event", "")
+    data = body.get("data", {})
 
-    event_type = body.get("event_type", "")
-    order_id = body.get("id", "")
-    status = body.get("status", "")
-    tracking = body.get("tracking", {})
-    customer = body.get("customer", {})
-    payment_detail = body.get("paymentDetail", {})
+    txn_id = data.get("id", "")
+    status = data.get("status", "")
+    amount = data.get("amount", 0)
 
-    # Extract our tracking_ref from tracking.src
-    src = tracking.get("src", "")
+    logger.info(
+        "[SyncPay Webhook] event=%s status=%s id=%s amount=%s",
+        event, status, txn_id, amount,
+    )
 
-    # The src may contain extra data — our ref is the part after "txn_"
-    tracking_ref = None
-    if "txn_" in src:
-        # Extract: could be "txn_abc123" or "v3_xxx_txn_abc123_yyy"
-        parts = src.split("txn_")
-        if len(parts) > 1:
-            # Take everything after txn_ until next underscore or end
-            ref_part = parts[1].split("_")[0] if "_" in parts[1] else parts[1]
-            tracking_ref = f"txn_{ref_part}"
+    if not txn_id:
+        return {"status": "ignored", "reason": "no transaction id"}
 
-    if not tracking_ref:
-        # Fallback: try the full src as tracking_ref
-        tracking_ref = src
+    async with async_session() as db:
+        # Find purchase by SyncPay identifier
+        result = await db.execute(
+            select(CreditPurchase).where(CreditPurchase.syncpay_identifier == txn_id)
+        )
+        purchase = result.scalar_one_or_none()
 
-    logger.info(f"MundPay webhook: event={event_type} status={status} order={order_id} ref={tracking_ref}")
+        if purchase is None:
+            logger.warning("[SyncPay Webhook] Purchase not found for id=%s", txn_id)
+            return {"status": "not_found", "identifier": txn_id}
 
-    if event_type == "order.paid" and status == "paid":
-        async with async_session() as db:
-            # Find payment by tracking_ref
-            result = await db.execute(
-                select(Payment).where(Payment.tracking_ref == tracking_ref)
-            )
-            payment = result.scalar_one_or_none()
+        if purchase.status == "completed":
+            logger.info("[SyncPay Webhook] Purchase #%d already completed", purchase.id)
+            return {"status": "already_processed"}
 
-            if payment is None:
-                logger.warning(f"Payment not found for tracking_ref={tracking_ref}")
-                return {"status": "not_found", "tracking_ref": tracking_ref}
+        # Handle completed payment
+        if status == "completed":
+            purchase.status = "completed"
+            purchase.paid_at = datetime.utcnow()
+            purchase.end_to_end = data.get("end_to_end")
 
-            if payment.status == "paid":
-                logger.info(f"Payment #{payment.id} already marked as paid")
-                return {"status": "already_processed"}
+            # Extract customer info from webhook
+            client = data.get("client", {})
+            debtor = data.get("debtor_account", {})
+            if client:
+                purchase.customer_name = client.get("name") or purchase.customer_name
+                purchase.customer_email = client.get("email") or purchase.customer_email
+            elif debtor:
+                purchase.customer_name = debtor.get("name") or purchase.customer_name
 
-            # Update payment
-            payment.status = "paid"
-            payment.mundpay_order_id = order_id
-            payment.customer_name = customer.get("name")
-            payment.customer_email = customer.get("email")
-            payment.payment_method = body.get("payment_method")
-            paid_at_str = body.get("paid_at")
-            if paid_at_str:
-                try:
-                    payment.paid_at = datetime.fromisoformat(paid_at_str.replace("Z", "+00:00"))
-                except Exception:
-                    payment.paid_at = datetime.utcnow()
-            else:
-                payment.paid_at = datetime.utcnow()
-
-            # Activate the job
-            job = await db.get(CloneJob, payment.job_id)
-            if job and job.status == "awaiting_payment":
-                job.status = "pending"
-                logger.info(f"Job #{job.id} activated after payment #{payment.id}")
+            # Add credits to user
+            user = await db.get(User, purchase.user_id)
+            if user:
+                credit_field = _CREDIT_FIELDS.get(purchase.plan)
+                if credit_field:
+                    current = getattr(user, credit_field, 0)
+                    setattr(user, credit_field, current + purchase.credits)
+                    logger.info(
+                        "[SyncPay Webhook] Added %d %s credit(s) to user %s (now %d)",
+                        purchase.credits, purchase.plan, user.username,
+                        current + purchase.credits,
+                    )
 
             await db.commit()
-            return {"status": "ok", "payment_id": payment.id, "job_id": payment.job_id}
+            return {"status": "ok", "purchase_id": purchase.id}
 
-    elif event_type == "order.refunded":
-        async with async_session() as db:
-            result = await db.execute(
-                select(Payment).where(Payment.tracking_ref == tracking_ref)
-            )
-            payment = result.scalar_one_or_none()
-            if payment:
-                payment.status = "refunded"
-                # Cancel the job if still running
-                job = await db.get(CloneJob, payment.job_id)
-                if job and job.status in ("pending", "running", "paused"):
-                    job.status = "cancelled"
-                    job.finished_at = datetime.utcnow()
-                await db.commit()
-                logger.info(f"Payment #{payment.id} refunded, job cancelled")
+        # Handle failed
+        elif status == "failed":
+            purchase.status = "failed"
+            await db.commit()
+            logger.info("[SyncPay Webhook] Purchase #%d failed", purchase.id)
+            return {"status": "failed"}
+
+        # Handle refunded
+        elif status == "refunded" or status == "med":
+            purchase.status = "refunded"
+            # Remove credits if they were already added
+            if purchase.paid_at:
+                user = await db.get(User, purchase.user_id)
+                if user:
+                    credit_field = _CREDIT_FIELDS.get(purchase.plan)
+                    if credit_field:
+                        current = getattr(user, credit_field, 0)
+                        setattr(user, credit_field, max(0, current - purchase.credits))
+                        logger.info(
+                            "[SyncPay Webhook] Refunded %d %s credit(s) from user %s",
+                            purchase.credits, purchase.plan, user.username,
+                        )
+            await db.commit()
             return {"status": "refunded"}
 
-    return {"status": "ignored", "event_type": event_type}
+        # Pending or other — just log
+        else:
+            logger.info("[SyncPay Webhook] Status=%s for purchase #%d (no action)", status, purchase.id)
+            return {"status": "noted", "current_status": status}

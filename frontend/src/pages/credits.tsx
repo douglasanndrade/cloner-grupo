@@ -1,10 +1,23 @@
-import { useState, useEffect } from 'react'
-import { Coins, RefreshCw, ShoppingCart, Search, AlertTriangle, Plus, CheckCircle2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import {
+  Coins, RefreshCw, Search, AlertTriangle, Plus, CheckCircle2,
+  QrCode, Copy, Clock, ShoppingCart, History,
+} from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { authApi, entitiesApi, accountsApi } from '@/services/api'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import { authApi, entitiesApi, accountsApi, pixApi } from '@/services/api'
+import { useAuthStore } from '@/stores/auth-store'
 import {
   Select,
   SelectContent,
@@ -12,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import type { TelegramAccount } from '@/types'
 
 interface Credits {
@@ -19,6 +33,31 @@ interface Credits {
   standard: number
   premium: number
 }
+
+interface PixResult {
+  purchase_id: number
+  plan: string
+  plan_name: string
+  amount: number
+  amount_formatted: string
+  pix_code: string
+  identifier: string
+  status: string
+}
+
+interface Purchase {
+  id: number
+  plan: string
+  plan_name: string
+  credits: number
+  amount: number
+  amount_formatted: string
+  status: string
+  created_at: string | null
+  paid_at: string | null
+}
+
+// ---- Admin Credit Manager (only for admins) ----
 
 function AdminCreditManager({ onCreditsChanged }: { onCreditsChanged: () => void }) {
   const [targetUsername, setTargetUsername] = useState('')
@@ -30,13 +69,8 @@ function AdminCreditManager({ onCreditsChanged }: { onCreditsChanged: () => void
   const [error, setError] = useState('')
 
   const handleAddCredits = async () => {
-    if (!targetUsername.trim()) {
-      setError('Informe o usuário')
-      return
-    }
-    setSaving(true)
-    setError('')
-    setMessage('')
+    if (!targetUsername.trim()) { setError('Informe o usuário'); return }
+    setSaving(true); setError(''); setMessage('')
     try {
       const res = await authApi.addCredits({
         username: targetUsername.trim(),
@@ -44,81 +78,39 @@ function AdminCreditManager({ onCreditsChanged }: { onCreditsChanged: () => void
         credits_standard: Number(addStandard) || 0,
         credits_premium: Number(addPremium) || 0,
       })
-      setMessage(
-        `Créditos atualizados! ${res.data.username}: B:${res.data.credits_basic} S:${res.data.credits_standard} P:${res.data.credits_premium}`
-      )
-      setAddBasic('0')
-      setAddStandard('0')
-      setAddPremium('0')
+      setMessage(`Créditos atualizados! ${res.data.username}: B:${res.data.credits_basic} S:${res.data.credits_standard} P:${res.data.credits_premium}`)
+      setAddBasic('0'); setAddStandard('0'); setAddPremium('0')
       onCreditsChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao atualizar créditos')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
         <Label>Usuário</Label>
-        <Input
-          placeholder="email ou username do usuário"
-          value={targetUsername}
-          onChange={(e) => setTargetUsername(e.target.value)}
-        />
+        <Input placeholder="email ou username" value={targetUsername} onChange={(e) => setTargetUsername(e.target.value)} />
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <Label className="text-xs">Básico</Label>
-          <Input
-            type="number"
-            value={addBasic}
-            onChange={(e) => setAddBasic(e.target.value)}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Standard</Label>
-          <Input
-            type="number"
-            value={addStandard}
-            onChange={(e) => setAddStandard(e.target.value)}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Premium</Label>
-          <Input
-            type="number"
-            value={addPremium}
-            onChange={(e) => setAddPremium(e.target.value)}
-          />
-        </div>
+        <div className="space-y-1"><Label className="text-xs">Básico</Label><Input type="number" value={addBasic} onChange={(e) => setAddBasic(e.target.value)} /></div>
+        <div className="space-y-1"><Label className="text-xs">Standard</Label><Input type="number" value={addStandard} onChange={(e) => setAddStandard(e.target.value)} /></div>
+        <div className="space-y-1"><Label className="text-xs">Premium</Label><Input type="number" value={addPremium} onChange={(e) => setAddPremium(e.target.value)} /></div>
       </div>
       <Button onClick={handleAddCredits} disabled={saving} className="w-full">
-        {saving ? (
-          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-        ) : (
-          <Plus className="mr-2 h-4 w-4" />
-        )}
+        {saving ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
         Adicionar Créditos
       </Button>
-      {message && (
-        <div className="flex items-center gap-2 rounded-lg bg-success/10 border border-success/20 p-3 text-sm text-success">
-          <CheckCircle2 className="h-4 w-4 shrink-0" />
-          {message}
-        </div>
-      )}
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
+      {message && <div className="flex items-center gap-2 rounded-lg bg-success/10 border border-success/20 p-3 text-sm text-success"><CheckCircle2 className="h-4 w-4 shrink-0" />{message}</div>}
+      {error && <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</div>}
     </div>
   )
 }
 
+// ---- Main Page ----
+
 export function CreditsPage() {
+  const isAdmin = useAuthStore((s) => s.isAdmin)
   const [credits, setCredits] = useState<Credits>({ basic: 0, standard: 0, premium: 0 })
   const [loading, setLoading] = useState(true)
 
@@ -132,6 +124,24 @@ export function CreditsPage() {
     credit_tier: string; credit_tier_label: string;
   } | null>(null)
   const [verifyError, setVerifyError] = useState('')
+
+  // Buy credits
+  const [showBuyDialog, setShowBuyDialog] = useState(false)
+  const [selectedPlan, setSelectedPlan] = useState('')
+  const [buyName, setBuyName] = useState('')
+  const [buyCpf, setBuyCpf] = useState('')
+  const [buyEmail, setBuyEmail] = useState('')
+  const [buyPhone, setBuyPhone] = useState('')
+  const [buying, setBuying] = useState(false)
+  const [buyError, setBuyError] = useState('')
+  const [pixResult, setPixResult] = useState<PixResult | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  // Purchase history
+  const [purchases, setPurchases] = useState<Purchase[]>([])
+
+  // Poll for payment confirmation
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchCredits = () => {
     setLoading(true)
@@ -147,30 +157,109 @@ export function CreditsPage() {
       .finally(() => setLoading(false))
   }
 
+  const fetchPurchases = () => {
+    pixApi.purchases().then((res) => setPurchases(res.data)).catch(() => {})
+  }
+
   useEffect(() => {
     fetchCredits()
+    fetchPurchases()
     accountsApi.list().then((res) => setAccounts(res.data)).catch(() => {})
   }, [])
 
+  // Poll payment status when we have a pending pix
+  useEffect(() => {
+    if (!pixResult || pixResult.status !== 'pending') return
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await pixApi.checkStatus(pixResult.purchase_id)
+        if (res.data.status === 'completed') {
+          setPixResult((prev) => prev ? { ...prev, status: 'completed' } : null)
+          fetchCredits()
+          fetchPurchases()
+          if (pollRef.current) clearInterval(pollRef.current)
+        }
+      } catch {}
+    }, 5000)
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [pixResult])
+
   const handleVerifyGroup = async () => {
     if (!verifyGroupId || !verifyAccountId) return
-    setVerifying(true)
-    setVerifyResult(null)
-    setVerifyError('')
+    setVerifying(true); setVerifyResult(null); setVerifyError('')
     try {
-      const res = await entitiesApi.verifyGroup({
-        identifier: verifyGroupId,
-        account_id: Number(verifyAccountId),
-      })
+      const res = await entitiesApi.verifyGroup({ identifier: verifyGroupId, account_id: Number(verifyAccountId) })
       setVerifyResult(res.data)
     } catch (err) {
       setVerifyError(err instanceof Error ? err.message : 'Erro ao verificar grupo')
-    } finally {
-      setVerifying(false)
+    } finally { setVerifying(false) }
+  }
+
+  const openBuyDialog = (plan: string) => {
+    setSelectedPlan(plan)
+    setPixResult(null)
+    setBuyError('')
+    setCopied(false)
+    setShowBuyDialog(true)
+  }
+
+  const handleBuyCredits = async () => {
+    if (!buyName || !buyCpf || !buyEmail || !buyPhone) {
+      setBuyError('Preencha todos os campos')
+      return
+    }
+    setBuying(true); setBuyError('')
+    try {
+      const res = await pixApi.buy({
+        plan: selectedPlan,
+        name: buyName,
+        cpf: buyCpf,
+        email: buyEmail,
+        phone: buyPhone,
+      })
+      setPixResult(res.data)
+    } catch (err) {
+      setBuyError(err instanceof Error ? err.message : 'Erro ao gerar Pix')
+    } finally { setBuying(false) }
+  }
+
+  const handleCopyPix = () => {
+    if (pixResult?.pix_code) {
+      navigator.clipboard.writeText(pixResult.pix_code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 3000)
+    }
+  }
+
+  const closeBuyDialog = () => {
+    setShowBuyDialog(false)
+    if (pollRef.current) clearInterval(pollRef.current)
+    if (pixResult?.status === 'completed') {
+      fetchCredits()
+      fetchPurchases()
     }
   }
 
   const totalCredits = credits.basic + credits.standard + credits.premium
+
+  const planColors: Record<string, string> = {
+    basic: 'border-green-500/30 bg-green-500/5 text-green-500',
+    standard: 'border-blue-500/30 bg-blue-500/5 text-blue-500',
+    premium: 'border-purple-500/30 bg-purple-500/5 text-purple-500',
+  }
+
+  const planInfo: Record<string, { name: string; desc: string; price: string; color: string }> = {
+    basic: { name: 'Básico', desc: 'Grupos até 500 msgs', price: 'R$ 29,90', color: 'green' },
+    standard: { name: 'Standard', desc: 'Grupos 501-1000 msgs', price: 'R$ 49,90', color: 'blue' },
+    premium: { name: 'Premium', desc: 'Grupos +1000 msgs', price: 'R$ 99,90', color: 'purple' },
+  }
+
+  const statusLabel: Record<string, { text: string; variant: 'success' | 'warning' | 'error' | 'secondary' }> = {
+    pending: { text: 'Aguardando', variant: 'warning' },
+    completed: { text: 'Pago', variant: 'success' },
+    failed: { text: 'Falhou', variant: 'error' },
+    refunded: { text: 'Estornado', variant: 'secondary' },
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -178,9 +267,7 @@ export function CreditsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Créditos</h1>
-          <p className="text-sm text-muted-foreground">
-            Gerencie seus créditos de clonagem
-          </p>
+          <p className="text-sm text-muted-foreground">Compre e gerencie seus créditos de clonagem</p>
         </div>
         <Button variant="outline" onClick={fetchCredits} disabled={loading}>
           <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -203,76 +290,48 @@ export function CreditsPage() {
         </CardContent>
       </Card>
 
-      {/* Credit tiers */}
+      {/* Credit tiers with buy buttons */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Básico</CardTitle>
-            <CardDescription>Grupos até 500 mensagens</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold text-foreground">{credits.basic}</div>
-            <p className="text-xs text-muted-foreground mt-1">créditos disponíveis</p>
-            <div className="mt-4 h-2 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-green-500 transition-all"
-                style={{ width: `${Math.min((credits.basic / 50) * 100, 100)}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Standard</CardTitle>
-            <CardDescription>Grupos de 501 a 1000 mensagens</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold text-foreground">{credits.standard}</div>
-            <p className="text-xs text-muted-foreground mt-1">créditos disponíveis</p>
-            <div className="mt-4 h-2 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-blue-500 transition-all"
-                style={{ width: `${Math.min((credits.standard / 50) * 100, 100)}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Premium</CardTitle>
-            <CardDescription>Grupos com +1000 mensagens</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold text-foreground">{credits.premium}</div>
-            <p className="text-xs text-muted-foreground mt-1">créditos disponíveis</p>
-            <div className="mt-4 h-2 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-purple-500 transition-all"
-                style={{ width: `${Math.min((credits.premium / 50) * 100, 100)}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
+        {(['basic', 'standard', 'premium'] as const).map((plan) => {
+          const info = planInfo[plan]
+          const count = credits[plan]
+          return (
+            <Card key={plan}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">{info.name}</CardTitle>
+                <CardDescription>{info.desc}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="text-4xl font-bold text-foreground">{count}</div>
+                <p className="text-xs text-muted-foreground">créditos disponíveis</p>
+                <Separator />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => openBuyDialog(plan)}
+                >
+                  <QrCode className="mr-2 h-4 w-4" />
+                  Comprar — {info.price}
+                </Button>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
       {/* Verify Group */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Verificar Grupo</CardTitle>
-          <CardDescription>
-            Informe o ID do grupo para saber quantas mensagens tem e qual crédito será usado
-          </CardDescription>
+          <CardDescription>Informe o ID do grupo para saber qual crédito será usado</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Conta Telegram</Label>
               <Select value={verifyAccountId} onValueChange={setVerifyAccountId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione uma conta" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Selecione uma conta" /></SelectTrigger>
                 <SelectContent>
                   {accounts.map((acc) => (
                     <SelectItem key={acc.id} value={String(acc.id)}>
@@ -285,54 +344,22 @@ export function CreditsPage() {
             <div className="space-y-2">
               <Label>ID do Grupo/Canal</Label>
               <div className="flex gap-2">
-                <Input
-                  placeholder="-1003322669846 ou @canal"
-                  value={verifyGroupId}
-                  onChange={(e) => setVerifyGroupId(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleVerifyGroup()}
-                />
-                <Button
-                  onClick={handleVerifyGroup}
-                  disabled={verifying || !verifyGroupId || !verifyAccountId}
-                >
-                  {verifying ? (
-                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Search className="mr-2 h-4 w-4" />
-                  )}
+                <Input placeholder="-1003322669846 ou @canal" value={verifyGroupId} onChange={(e) => setVerifyGroupId(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleVerifyGroup()} />
+                <Button onClick={handleVerifyGroup} disabled={verifying || !verifyGroupId || !verifyAccountId}>
+                  {verifying ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
                   Verificar
                 </Button>
               </div>
             </div>
           </div>
-
-          {verifyError && (
-            <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              {verifyError}
-            </div>
-          )}
-
+          {verifyError && <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error"><AlertTriangle className="h-4 w-4 shrink-0" />{verifyError}</div>}
           {verifyResult && (
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Grupo:</span>
-                <span className="text-sm font-medium text-foreground">{verifyResult.title}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">ID:</span>
-                <span className="text-sm font-mono text-foreground">{verifyResult.telegram_id}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Total de mensagens:</span>
-                <span className="text-lg font-bold text-foreground">{verifyResult.message_count.toLocaleString('pt-BR')}</span>
-              </div>
+              <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Grupo:</span><span className="text-sm font-medium text-foreground">{verifyResult.title}</span></div>
+              <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Mensagens:</span><span className="text-lg font-bold text-foreground">{verifyResult.message_count.toLocaleString('pt-BR')}</span></div>
               <div className="border-t border-border pt-3 flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Crédito necessário:</span>
-                <span className={`text-sm font-bold ${
-                  verifyResult.credit_tier === 'basic' ? 'text-green-500' :
-                  verifyResult.credit_tier === 'standard' ? 'text-blue-500' : 'text-purple-500'
-                }`}>
+                <span className={cn('text-sm font-bold', verifyResult.credit_tier === 'basic' ? 'text-green-500' : verifyResult.credit_tier === 'standard' ? 'text-blue-500' : 'text-purple-500')}>
                   1x {verifyResult.credit_tier_label}
                 </span>
               </div>
@@ -341,44 +368,149 @@ export function CreditsPage() {
         </CardContent>
       </Card>
 
-      {/* Admin: Manage Credits */}
-      <Card className="border-primary/30">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Plus className="h-5 w-5 text-primary" />
-            <CardTitle className="text-base">Gerenciar Créditos</CardTitle>
-          </div>
-          <CardDescription>
-            Adicione ou defina créditos para um usuário
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <AdminCreditManager onCreditsChanged={fetchCredits} />
-        </CardContent>
-      </Card>
+      {/* Purchase History */}
+      {purchases.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2"><History className="h-4 w-4" /> Histórico de Compras</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {purchases.map((p) => {
+                const sl = statusLabel[p.status] || { text: p.status, variant: 'secondary' as const }
+                return (
+                  <div key={p.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                    <div>
+                      <span className="text-sm font-medium text-foreground">{p.plan_name}</span>
+                      <span className="text-xs text-muted-foreground ml-2">{p.amount_formatted}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={sl.variant}>{sl.text}</Badge>
+                      <span className="text-xs text-muted">
+                        {p.created_at ? new Date(p.created_at).toLocaleDateString('pt-BR') : ''}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Info */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Como Funcionam os Créditos</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="text-sm text-muted-foreground space-y-2">
-            <ul className="list-disc list-inside space-y-1 ml-2">
-              <li><strong>Básico</strong> — 1 crédito por grupo com até 500 mensagens</li>
-              <li><strong>Standard</strong> — 1 crédito por grupo de 501 a 1.000 mensagens</li>
-              <li><strong>Premium</strong> — 1 crédito por grupo com mais de 1.000 mensagens</li>
-            </ul>
-            <p className="mt-3">
-              O crédito é consumido automaticamente ao criar um novo job de clonagem.
-              Verifique o grupo de origem para saber qual tipo de crédito será necessário.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Admin: Manage Credits */}
+      {isAdmin && (
+        <Card className="border-primary/30">
+          <CardHeader>
+            <div className="flex items-center gap-2"><Plus className="h-5 w-5 text-primary" /><CardTitle className="text-base">Gerenciar Créditos (Admin)</CardTitle></div>
+            <CardDescription>Adicione créditos manualmente para um usuário</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AdminCreditManager onCreditsChanged={fetchCredits} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Buy Credits Dialog */}
+      {showBuyDialog && (
+        <Dialog open onOpenChange={closeBuyDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {pixResult?.status === 'completed' ? 'Pagamento Confirmado!' : pixResult ? 'Pague via Pix' : `Comprar Crédito ${planInfo[selectedPlan]?.name}`}
+              </DialogTitle>
+              <DialogDescription>
+                {pixResult?.status === 'completed'
+                  ? 'Seu crédito já foi adicionado automaticamente.'
+                  : pixResult
+                    ? 'Copie o código Pix ou escaneie o QR Code'
+                    : `1 crédito ${planInfo[selectedPlan]?.name} por ${planInfo[selectedPlan]?.price}`
+                }
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Payment confirmed */}
+            {pixResult?.status === 'completed' && (
+              <div className="flex flex-col items-center py-6">
+                <CheckCircle2 className="h-16 w-16 text-success mb-4" />
+                <p className="text-lg font-bold text-foreground">Pagamento confirmado!</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  1 crédito {pixResult.plan_name} adicionado
+                </p>
+                <Button className="mt-4 w-full" onClick={closeBuyDialog}>Fechar</Button>
+              </div>
+            )}
+
+            {/* Pix generated — show code */}
+            {pixResult && pixResult.status === 'pending' && (
+              <div className="space-y-4">
+                <div className="text-center p-4 rounded-lg bg-surface border border-border">
+                  <QrCode className="h-8 w-8 text-primary mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-foreground">{pixResult.amount_formatted}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Plano {pixResult.plan_name}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Pix Copia e Cola</Label>
+                  <div className="relative">
+                    <textarea
+                      readOnly
+                      value={pixResult.pix_code}
+                      className="w-full h-20 text-xs font-mono bg-surface border border-border rounded-lg p-3 text-foreground resize-none"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="absolute top-2 right-2"
+                      onClick={handleCopyPix}
+                    >
+                      {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 rounded-lg bg-warning/10 border border-warning/20 p-3 text-sm text-warning">
+                  <Clock className="h-4 w-4 shrink-0 animate-pulse" />
+                  Aguardando pagamento... A página atualiza automaticamente.
+                </div>
+              </div>
+            )}
+
+            {/* Form to fill before generating pix */}
+            {!pixResult && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Nome completo</Label>
+                  <Input placeholder="Seu nome" value={buyName} onChange={(e) => setBuyName(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>CPF</Label>
+                    <Input placeholder="12345678900" value={buyCpf} onChange={(e) => setBuyCpf(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Telefone</Label>
+                    <Input placeholder="11999999999" value={buyPhone} onChange={(e) => setBuyPhone(e.target.value)} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <Input type="email" placeholder="seu@email.com" value={buyEmail} onChange={(e) => setBuyEmail(e.target.value)} />
+                </div>
+                {buyError && (
+                  <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />{buyError}
+                  </div>
+                )}
+                <Button onClick={handleBuyCredits} disabled={buying} className="w-full">
+                  {buying ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}
+                  Gerar Pix — {planInfo[selectedPlan]?.price}
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

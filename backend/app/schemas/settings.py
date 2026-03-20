@@ -13,6 +13,10 @@ class AppSettingsOut(BaseModel):
     retry_delay_seconds: int
     db_url: str
     worker_enabled: bool
+    # SyncPay
+    syncpay_client_id: str
+    syncpay_client_secret: str
+    syncpay_webhook_url: str
 
 
 class AppSettingsUpdate(BaseModel):
@@ -27,3 +31,7 @@ class AppSettingsUpdate(BaseModel):
     retry_delay_seconds: int | None = None
     db_url: str | None = None
     worker_enabled: bool | None = None
+    # SyncPay
+    syncpay_client_id: str | None = None
+    syncpay_client_secret: str | None = None
+    syncpay_webhook_url: str | None = None

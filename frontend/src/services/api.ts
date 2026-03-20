@@ -273,6 +273,27 @@ export const paymentsApi = {
 }
 
 // ============================================================
+// Pix (Credit Purchase)
+// ============================================================
+
+export const pixApi = {
+  plans: () =>
+    request<ApiResponse<any[]>>('/pix/plans'),
+
+  buy: (data: { plan: string; name: string; cpf: string; email: string; phone: string }) =>
+    request<ApiResponse<any>>('/pix/buy', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  purchases: () =>
+    request<ApiResponse<any[]>>('/pix/purchases'),
+
+  checkStatus: (purchaseId: number) =>
+    request<ApiResponse<any>>(`/pix/purchases/${purchaseId}/status`),
+}
+
+// ============================================================
 // Admin
 // ============================================================
 

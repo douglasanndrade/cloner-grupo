@@ -33,6 +33,9 @@ const defaultSettings: AppSettings = {
   retry_delay_seconds: 5,
   db_url: '',
   worker_enabled: true,
+  syncpay_client_id: '',
+  syncpay_client_secret: '',
+  syncpay_webhook_url: '',
 }
 
 export function SettingsPage() {
@@ -328,6 +331,54 @@ export function SettingsPage() {
               Essas credenciais são obtidas em <b>my.telegram.org</b>.
               Você configura uma vez e todas as contas adicionadas usam o mesmo API ID e Hash.
             </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* SyncPay (Pix) */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Coins className="h-5 w-5 text-success" />
+            <CardTitle className="text-base">SyncPay (Pix)</CardTitle>
+          </div>
+          <CardDescription>
+            Credenciais da API SyncPay para pagamentos via Pix
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="syncClientId">Client ID</Label>
+              <Input
+                id="syncClientId"
+                placeholder="cadc17a6-3724-..."
+                value={settings.syncpay_client_id}
+                onChange={(e) => update('syncpay_client_id', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="syncClientSecret">Client Secret</Label>
+              <Input
+                id="syncClientSecret"
+                type="password"
+                placeholder="a89657d4-d09a-..."
+                value={settings.syncpay_client_secret}
+                onChange={(e) => update('syncpay_client_secret', e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="syncWebhookUrl">Webhook URL (público)</Label>
+            <Input
+              id="syncWebhookUrl"
+              placeholder="https://seudominio.com/api/webhooks/syncpay"
+              value={settings.syncpay_webhook_url}
+              onChange={(e) => update('syncpay_webhook_url', e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              URL pública onde a SyncPay envia a confirmação de pagamento. Endpoint: <code>/api/webhooks/syncpay</code>
+            </p>
           </div>
         </CardContent>
       </Card>

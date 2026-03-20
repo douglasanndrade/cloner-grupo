@@ -31,6 +31,25 @@ async def ensure_db_columns():
             await db.execute(text("""
                 ALTER TABLE clone_jobs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id);
             """))
+            # Create credit_purchases table if not exists
+            await db.execute(text("""
+                CREATE TABLE IF NOT EXISTS credit_purchases (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    plan VARCHAR(20) NOT NULL,
+                    credits INTEGER DEFAULT 1,
+                    amount DOUBLE PRECISION NOT NULL,
+                    syncpay_identifier VARCHAR(128) UNIQUE NOT NULL,
+                    pix_code TEXT,
+                    status VARCHAR(20) DEFAULT 'pending',
+                    customer_name VARCHAR(256),
+                    customer_email VARCHAR(256),
+                    customer_cpf VARCHAR(20),
+                    end_to_end VARCHAR(128),
+                    paid_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """))
             await db.commit()
             print("[STARTUP] DB columns ensured")
         except Exception as e:

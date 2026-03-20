@@ -172,6 +172,9 @@ export interface AppSettings {
   retry_delay_seconds: number
   db_url: string
   worker_enabled: boolean
+  syncpay_client_id: string
+  syncpay_client_secret: string
+  syncpay_webhook_url: string
 }
 
 // ============================================================

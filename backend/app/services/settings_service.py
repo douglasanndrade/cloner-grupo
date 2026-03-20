@@ -18,6 +18,9 @@ DEFAULTS = {
     "retry_delay_seconds": str(app_config.retry_delay_seconds),
     "db_url": app_config.database_url,
     "worker_enabled": "true",
+    "syncpay_client_id": "",
+    "syncpay_client_secret": "",
+    "syncpay_webhook_url": "",
 }
 
 
@@ -40,6 +43,9 @@ async def get_all_settings(db: AsyncSession) -> dict:
         "retry_delay_seconds": int(merged["retry_delay_seconds"]),
         "db_url": merged["db_url"],
         "worker_enabled": merged["worker_enabled"].lower() in ("true", "1", "yes"),
+        "syncpay_client_id": merged["syncpay_client_id"],
+        "syncpay_client_secret": merged["syncpay_client_secret"],
+        "syncpay_webhook_url": merged["syncpay_webhook_url"],
     }
 
 
