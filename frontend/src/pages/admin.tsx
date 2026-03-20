@@ -16,7 +16,13 @@ import {
   X,
   ScrollText,
   Activity,
+  DollarSign,
+  TrendingUp,
+  XCircle,
+  Clock,
+  Key,
 } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -61,8 +67,12 @@ interface UserDetail {
     active_jobs: number
     completed_jobs: number
     failed_jobs: number
+    cancelled_jobs: number
     total_messages_processed: number
     total_errors: number
+    total_skipped: number
+    total_spent: number
+    total_purchases: number
   }
   jobs: {
     id: number
@@ -76,9 +86,22 @@ interface UserDetail {
     processed_count: number
     error_count: number
     skipped_count: number
+    incompatible_count: number
+    progress: number
     created_at: string | null
     started_at: string | null
     finished_at: string | null
+  }[]
+  purchases: {
+    id: number
+    plan: string
+    credits: number
+    amount: number
+    status: string
+    customer_name: string | null
+    customer_cpf: string | null
+    created_at: string | null
+    paid_at: string | null
   }[]
   recent_logs: {
     id: number
@@ -270,6 +293,43 @@ export function AdminPage() {
   if (selectedUserId && userDetail) {
     const u = userDetail.user
     const s = userDetail.stats
+
+    const handleResetPassword = async () => {
+      const newPw = prompt(`Nova senha para ${u.username}:`)
+      if (!newPw || newPw.length < 6) { alert('Senha deve ter no mínimo 6 caracteres'); return }
+      try {
+        await adminApi.updateUser(u.id, { password: newPw })
+        setMessage(`Senha de ${u.username} alterada!`)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro ao resetar senha')
+      }
+    }
+
+    const handleQuickCredits = async (field: string, amount: number) => {
+      try {
+        const update: any = {}
+        update[field] = (u as any)[field] + amount
+        await adminApi.updateUser(u.id, update)
+        setMessage(`+${amount} crédito adicionado!`)
+        openGodEye(selectedUserId)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro')
+      }
+    }
+
+    const planLabels: Record<string, { name: string; color: string }> = {
+      basic: { name: 'Básico', color: 'text-green-400' },
+      standard: { name: 'Standard', color: 'text-blue-400' },
+      premium: { name: 'Premium', color: 'text-purple-400' },
+    }
+
+    const purchaseStatusLabel: Record<string, { text: string; color: string }> = {
+      pending: { text: 'Aguardando', color: 'text-yellow-400' },
+      completed: { text: 'Pago', color: 'text-green-400' },
+      failed: { text: 'Falhou', color: 'text-red-400' },
+      refunded: { text: 'Estornado', color: 'text-gray-400' },
+    }
+
     return (
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
@@ -284,95 +344,105 @@ export function AdminPage() {
               {u.is_admin && <Badge variant="info">Admin</Badge>}
             </div>
             <p className="text-sm text-muted-foreground">
-              Membro desde {formatDate(u.created_at)}
+              Membro desde {formatDate(u.created_at)} · ID: {u.id}
             </p>
           </div>
-          <Button variant="outline" onClick={() => openGodEye(selectedUserId)}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Atualizar
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleResetPassword} title="Resetar senha">
+              <Key className="mr-2 h-4 w-4" />
+              Resetar Senha
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openGodEye(selectedUserId)}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Atualizar
+            </Button>
+          </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                  <Copy className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{s.total_jobs}</p>
-                  <p className="text-xs text-muted-foreground">Total Jobs</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-500/10">
-                  <Activity className="h-5 w-5 text-blue-400" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{s.active_jobs}</p>
-                  <p className="text-xs text-muted-foreground">Ativos</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
-                  <CheckCircle2 className="h-5 w-5 text-green-400" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{s.total_messages_processed.toLocaleString('pt-BR')}</p>
-                  <p className="text-xs text-muted-foreground">Mensagens</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500/10">
-                  <Coins className="h-5 w-5 text-yellow-400" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{u.credits_basic + u.credits_standard + u.credits_premium}</p>
-                  <p className="text-xs text-muted-foreground">Créditos</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Messages */}
+        {message && (
+          <div className="flex items-center gap-2 rounded-lg bg-success/10 border border-success/20 p-3 text-sm text-success">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />{message}
+          </div>
+        )}
+
+        {/* Stats Grid */}
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
+          <Card><CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10"><Copy className="h-4 w-4 text-primary" /></div>
+              <div><p className="text-xl font-bold">{s.total_jobs}</p><p className="text-[10px] text-muted-foreground">Total Jobs</p></div>
+            </div>
+          </CardContent></Card>
+          <Card><CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10"><Activity className="h-4 w-4 text-blue-400" /></div>
+              <div><p className="text-xl font-bold">{s.active_jobs}</p><p className="text-[10px] text-muted-foreground">Ativos</p></div>
+            </div>
+          </CardContent></Card>
+          <Card><CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-500/10"><CheckCircle2 className="h-4 w-4 text-green-400" /></div>
+              <div><p className="text-xl font-bold">{s.completed_jobs}</p><p className="text-[10px] text-muted-foreground">Concluídos</p></div>
+            </div>
+          </CardContent></Card>
+          <Card><CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-500/10"><XCircle className="h-4 w-4 text-red-400" /></div>
+              <div><p className="text-xl font-bold">{s.failed_jobs}</p><p className="text-[10px] text-muted-foreground">Falhas</p></div>
+            </div>
+          </CardContent></Card>
+          <Card><CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10"><TrendingUp className="h-4 w-4 text-emerald-400" /></div>
+              <div><p className="text-xl font-bold">{s.total_messages_processed.toLocaleString('pt-BR')}</p><p className="text-[10px] text-muted-foreground">Mensagens</p></div>
+            </div>
+          </CardContent></Card>
         </div>
 
-        {/* Credits detail */}
+        {/* Credits + Quick Actions */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Créditos</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2"><Coins className="h-4 w-4" /> Créditos</CardTitle>
+              <Button variant="outline" size="sm" onClick={() => openEditCredits({
+                id: u.id, username: u.username, is_admin: u.is_admin,
+                credits_basic: u.credits_basic, credits_standard: u.credits_standard,
+                credits_premium: u.credits_premium, total_credits: u.credits_basic + u.credits_standard + u.credits_premium,
+                total_jobs: s.total_jobs, active_jobs: s.active_jobs, created_at: u.created_at,
+              })}>
+                <Pencil className="mr-1.5 h-3.5 w-3.5" /> Editar
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3">
-                <p className="text-2xl font-bold">{u.credits_basic}</p>
-                <p className="text-xs text-muted-foreground">Básico</p>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4 text-center">
+                <p className="text-3xl font-bold">{u.credits_basic}</p>
+                <p className="text-xs text-muted-foreground mt-1">Básico</p>
+                <Button variant="ghost" size="sm" className="mt-2 text-green-400 text-xs" onClick={() => handleQuickCredits('credits_basic', 1)}>
+                  <Plus className="h-3 w-3 mr-1" />+1
+                </Button>
               </div>
-              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3">
-                <p className="text-2xl font-bold">{u.credits_standard}</p>
-                <p className="text-xs text-muted-foreground">Standard</p>
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-4 text-center">
+                <p className="text-3xl font-bold">{u.credits_standard}</p>
+                <p className="text-xs text-muted-foreground mt-1">Standard</p>
+                <Button variant="ghost" size="sm" className="mt-2 text-blue-400 text-xs" onClick={() => handleQuickCredits('credits_standard', 1)}>
+                  <Plus className="h-3 w-3 mr-1" />+1
+                </Button>
               </div>
-              <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-3">
-                <p className="text-2xl font-bold">{u.credits_premium}</p>
-                <p className="text-xs text-muted-foreground">Premium</p>
+              <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-4 text-center">
+                <p className="text-3xl font-bold">{u.credits_premium}</p>
+                <p className="text-xs text-muted-foreground mt-1">Premium</p>
+                <Button variant="ghost" size="sm" className="mt-2 text-purple-400 text-xs" onClick={() => handleQuickCredits('credits_premium', 1)}>
+                  <Plus className="h-3 w-3 mr-1" />+1
+                </Button>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Jobs */}
+        {/* Jobs with progress bars */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -382,33 +452,104 @@ export function AdminPage() {
           </CardHeader>
           <CardContent>
             {userDetail.jobs.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">Nenhum job encontrado</p>
+              <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <Copy className="h-10 w-10 mb-2 opacity-30" />
+                <p className="text-sm">Este lead ainda não criou nenhum job</p>
+              </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {userDetail.jobs.map((job) => (
-                  <div key={job.id} className="flex items-center gap-3 rounded-lg border border-border p-3 hover:bg-surface-hover transition-colors">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground truncate">{job.name}</span>
-                        <Badge variant="outline" className={cn('text-xs', statusColors[job.status] || '')}>
-                          {job.status}
-                        </Badge>
+                  <div key={job.id} className="rounded-lg border border-border p-4 hover:bg-surface-hover/50 transition-colors">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-muted">#{job.id}</span>
+                          <span className="text-sm font-medium text-foreground truncate">{job.name}</span>
+                          <Badge variant="outline" className={cn('text-[10px]', statusColors[job.status] || '')}>
+                            {job.status}
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px] capitalize">{job.mode}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {job.source_title} → {job.destination_title} · {job.account_phone}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {job.source_title} → {job.destination_title}
-                      </p>
+                      <div className="text-right shrink-0 ml-3">
+                        <p className="text-lg font-bold font-mono text-foreground">{job.progress}%</p>
+                      </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-mono text-foreground">
-                        {job.processed_count}/{job.total_messages}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{formatDate(job.created_at)}</p>
+                    <Progress
+                      value={job.progress}
+                      className="h-2 mb-2"
+                      indicatorClassName={
+                        job.status === 'completed' ? 'bg-green-500' :
+                        job.status === 'failed' ? 'bg-red-500' :
+                        job.status === 'paused' ? 'bg-orange-400' :
+                        job.status === 'running' ? 'bg-blue-500' : undefined
+                      }
+                    />
+                    <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+                      <span>{job.processed_count.toLocaleString('pt-BR')}/{job.total_messages.toLocaleString('pt-BR')} msgs</span>
+                      {job.error_count > 0 && <span className="text-red-400">{job.error_count} erros</span>}
+                      {job.skipped_count > 0 && <span className="text-yellow-400">{job.skipped_count} pulados</span>}
+                      {job.incompatible_count > 0 && <span className="text-orange-400">{job.incompatible_count} incomp.</span>}
+                      <span className="ml-auto">{formatDate(job.created_at)}</span>
+                      {job.finished_at && <span>→ {formatDate(job.finished_at)}</span>}
                     </div>
-                    {job.error_count > 0 && (
-                      <Badge variant="error" className="shrink-0">{job.error_count} erros</Badge>
-                    )}
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Purchase History */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Compras Pix ({s.total_purchases})
+              {s.total_spent > 0 && (
+                <span className="text-xs font-normal text-muted-foreground ml-2">
+                  Total: R$ {s.total_spent.toFixed(2).replace('.', ',')}
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {userDetail.purchases.length === 0 ? (
+              <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <DollarSign className="h-10 w-10 mb-2 opacity-30" />
+                <p className="text-sm">Nenhuma compra via Pix</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {userDetail.purchases.map((p) => {
+                  const plan = planLabels[p.plan] || { name: p.plan, color: 'text-gray-400' }
+                  const pStatus = purchaseStatusLabel[p.status] || { text: p.status, color: 'text-gray-400' }
+                  return (
+                    <div key={p.id} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                      <div className={cn('flex h-8 w-8 items-center justify-center rounded-full bg-surface shrink-0')}>
+                        <DollarSign className={cn('h-4 w-4', plan.color)} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={cn('text-sm font-medium', plan.color)}>{plan.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            R$ {p.amount.toFixed(2).replace('.', ',')}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {p.customer_name || '—'} · CPF: {p.customer_cpf || '—'}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className={cn('text-xs font-medium', pStatus.color)}>{pStatus.text}</span>
+                        <p className="text-[10px] text-muted">{formatDate(p.paid_at || p.created_at)}</p>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </CardContent>
@@ -424,7 +565,10 @@ export function AdminPage() {
           </CardHeader>
           <CardContent>
             {userDetail.recent_logs.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">Nenhum log</p>
+              <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <ScrollText className="h-10 w-10 mb-2 opacity-30" />
+                <p className="text-sm">Nenhum log registrado</p>
+              </div>
             ) : (
               <div className="space-y-1 max-h-[400px] overflow-y-auto">
                 {userDetail.recent_logs.map((log) => (

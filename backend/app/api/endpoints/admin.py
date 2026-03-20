@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.job import CloneJob
 from app.models.job_log import CloneJobLog
+from app.models.credit_purchase import CreditPurchase
 from app.api.deps import require_auth
 from app.services.auth_service import _hash_password, create_user
 
@@ -136,9 +137,11 @@ async def get_user_detail(
     # Job stats
     total_messages = sum(j.processed_count for j in jobs)
     total_errors = sum(j.error_count for j in jobs)
+    total_skipped = sum(j.skipped_count for j in jobs)
 
     jobs_data = []
     for j in jobs:
+        progress = round((j.processed_count / j.total_messages * 100)) if j.total_messages > 0 else 0
         jobs_data.append({
             "id": j.id,
             "name": j.name,
@@ -151,10 +154,39 @@ async def get_user_detail(
             "processed_count": j.processed_count,
             "error_count": j.error_count,
             "skipped_count": j.skipped_count,
+            "incompatible_count": getattr(j, 'incompatible_count', 0),
+            "progress": progress,
             "created_at": j.created_at.isoformat() if j.created_at else None,
             "started_at": j.started_at.isoformat() if j.started_at else None,
             "finished_at": j.finished_at.isoformat() if j.finished_at else None,
         })
+
+    # Get credit purchases
+    purchases_result = await db.execute(
+        select(CreditPurchase)
+        .where(CreditPurchase.user_id == user_id)
+        .order_by(CreditPurchase.created_at.desc())
+        .limit(20)
+    )
+    purchases_data = []
+    total_spent = 0.0
+    for p in purchases_result.scalars().all():
+        purchases_data.append({
+            "id": p.id,
+            "plan": p.plan,
+            "credits": p.credits,
+            "amount": p.amount,
+            "status": p.status,
+            "customer_name": p.customer_name,
+            "customer_cpf": p.customer_cpf,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "paid_at": p.paid_at.isoformat() if p.paid_at else None,
+        })
+        if p.status == "completed":
+            total_spent += p.amount
+
+    # Credits consumed = initial credits given - current credits (approximate)
+    total_credits_now = target.credits_basic + target.credits_standard + target.credits_premium
 
     return {
         "data": {
@@ -172,10 +204,15 @@ async def get_user_detail(
                 "active_jobs": sum(1 for j in jobs if j.status in ("running", "pending", "validating")),
                 "completed_jobs": sum(1 for j in jobs if j.status == "completed"),
                 "failed_jobs": sum(1 for j in jobs if j.status == "failed"),
+                "cancelled_jobs": sum(1 for j in jobs if j.status == "cancelled"),
                 "total_messages_processed": total_messages,
                 "total_errors": total_errors,
+                "total_skipped": total_skipped,
+                "total_spent": total_spent,
+                "total_purchases": len(purchases_data),
             },
             "jobs": jobs_data,
+            "purchases": purchases_data,
             "recent_logs": recent_logs,
         }
     }
