@@ -297,6 +297,15 @@ export const pixApi = {
 
   checkStatus: (purchaseId: number) =>
     request<ApiResponse<any>>(`/pix/purchases/${purchaseId}/status`),
+
+  adminGetPlans: () =>
+    request<ApiResponse<any>>('/pix/admin/plans'),
+
+  adminUpdatePlans: (plans: any) =>
+    request<ApiResponse<any>>('/pix/admin/plans', {
+      method: 'POST',
+      body: JSON.stringify({ plans }),
+    }),
 }
 
 // ============================================================

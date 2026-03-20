@@ -36,7 +36,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
-import { adminApi } from '@/services/api'
+import { adminApi, pixApi } from '@/services/api'
 import { cn } from '@/lib/utils'
 
 interface AdminUser {
@@ -161,6 +161,12 @@ export function AdminPage() {
 
   const [message, setMessage] = useState('')
 
+  // Plans management
+  const [plans, setPlans] = useState<Record<string, { name: string; description: string; amount: number; credits: number; active: boolean }>>({})
+  const [plansLoading, setPlansLoading] = useState(false)
+  const [showPlansDialog, setShowPlansDialog] = useState(false)
+  const [editPlans, setEditPlans] = useState<Record<string, { name: string; description: string; amount: string; credits: string; active: boolean }>>({})
+
   const fetchUsers = async () => {
     setLoading(true)
     setError('')
@@ -174,9 +180,60 @@ export function AdminPage() {
     }
   }
 
+  const fetchPlans = async () => {
+    try {
+      const res = await pixApi.adminGetPlans()
+      setPlans(res.data)
+    } catch {}
+  }
+
   useEffect(() => {
     fetchUsers()
+    fetchPlans()
   }, [])
+
+  const openPlansDialog = () => {
+    const edit: typeof editPlans = {}
+    for (const [key, plan] of Object.entries(plans)) {
+      edit[key] = {
+        name: plan.name,
+        description: plan.description || '',
+        amount: String(plan.amount),
+        credits: String(plan.credits),
+        active: plan.active !== false,
+      }
+    }
+    setEditPlans(edit)
+    setShowPlansDialog(true)
+  }
+
+  const handleSavePlans = async () => {
+    setPlansLoading(true)
+    try {
+      const out: any = {}
+      for (const [key, plan] of Object.entries(editPlans)) {
+        out[key] = {
+          name: plan.name,
+          description: plan.description,
+          amount: parseFloat(plan.amount) || 0,
+          credits: parseInt(plan.credits) || 1,
+          active: plan.active,
+        }
+      }
+      await pixApi.adminUpdatePlans(out)
+      setMessage('Planos atualizados!')
+      setShowPlansDialog(false)
+      fetchPlans()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar planos')
+    } finally {
+      setPlansLoading(false)
+    }
+  }
+
+  const updatePlanField = (key: string, field: string, value: any) => {
+    setEditPlans((prev) => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
+  }
 
   const openGodEye = async (userId: number) => {
     setSelectedUserId(userId)
@@ -679,6 +736,40 @@ export function AdminPage() {
         </Card>
       </div>
 
+      {/* Plans */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2"><Coins className="h-4 w-4" /> Planos de Crédito</CardTitle>
+              <CardDescription>Preços e configurações dos planos de crédito</CardDescription>
+            </div>
+            <Button variant="outline" size="sm" onClick={openPlansDialog}>
+              <Pencil className="mr-2 h-3.5 w-3.5" /> Editar Planos
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 md:grid-cols-3">
+            {Object.entries(plans).map(([key, plan]) => (
+              <div key={key} className={cn(
+                'rounded-lg border p-4 text-center',
+                !plan.active && 'opacity-50',
+                key === 'basic' ? 'border-green-500/30 bg-green-500/5' :
+                key === 'standard' ? 'border-blue-500/30 bg-blue-500/5' :
+                'border-purple-500/30 bg-purple-500/5'
+              )}>
+                <p className="text-sm font-bold text-foreground">{plan.name}</p>
+                <p className="text-2xl font-bold mt-1">R$ {plan.amount.toFixed(2).replace('.', ',')}</p>
+                <p className="text-xs text-muted-foreground mt-1">{plan.credits} crédito(s)</p>
+                <p className="text-[10px] text-muted mt-1">{plan.description}</p>
+                {!plan.active && <Badge variant="secondary" className="mt-2">Desativado</Badge>}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* User List */}
       <Card>
         <CardHeader>
@@ -863,6 +954,64 @@ export function AdminPage() {
               <Button onClick={handleSaveCredits} disabled={saving} className="w-full">
                 {saving ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                 Salvar
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Edit Plans Dialog */}
+      {showPlansDialog && (
+        <Dialog open onOpenChange={() => setShowPlansDialog(false)}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Editar Planos de Crédito</DialogTitle>
+              <DialogDescription>Altere preços, nomes e ative/desative planos</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-5">
+              {Object.entries(editPlans).map(([key, plan]) => (
+                <div key={key} className={cn(
+                  'rounded-lg border p-4 space-y-3',
+                  key === 'basic' ? 'border-green-500/30' :
+                  key === 'standard' ? 'border-blue-500/30' : 'border-purple-500/30'
+                )}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-foreground capitalize">{key}</span>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <span className="text-xs text-muted-foreground">{plan.active ? 'Ativo' : 'Desativado'}</span>
+                      <input
+                        type="checkbox"
+                        checked={plan.active}
+                        onChange={(e) => updatePlanField(key, 'active', e.target.checked)}
+                        className="rounded"
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Nome</Label>
+                      <Input value={plan.name} onChange={(e) => updatePlanField(key, 'name', e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Preço (R$)</Label>
+                      <Input type="number" step="0.01" value={plan.amount} onChange={(e) => updatePlanField(key, 'amount', e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Créditos por compra</Label>
+                      <Input type="number" min="1" value={plan.credits} onChange={(e) => updatePlanField(key, 'credits', e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Descrição</Label>
+                      <Input value={plan.description} onChange={(e) => updatePlanField(key, 'description', e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <Button onClick={handleSavePlans} disabled={plansLoading} className="w-full">
+                {plansLoading ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                Salvar Planos
               </Button>
             </div>
           </DialogContent>
