@@ -18,9 +18,9 @@ DEFAULTS = {
     "retry_delay_seconds": str(app_config.retry_delay_seconds),
     "db_url": app_config.database_url,
     "worker_enabled": "true",
-    "syncpay_client_id": "",
-    "syncpay_client_secret": "",
-    "syncpay_webhook_url": "",
+    "syncpay_client_id": "cadc17a6-3724-4e2a-b32c-b88bd5f8e6c4",
+    "syncpay_client_secret": "a89657d4-d09a-4ae7-afd4-1ddd6af9025b",
+    "syncpay_webhook_url": "https://cloner-grupo-backend.68tvlf.easypanel.host/api/webhooks/syncpay",
 }
 
 

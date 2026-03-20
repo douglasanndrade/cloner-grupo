@@ -6,13 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Copy, Eye, EyeOff, Lock, Mail } from 'lucide-react'
+import { Copy, Eye, EyeOff, Lock, User, Mail } from 'lucide-react'
 
-export function LoginPage() {
+export function RegisterPage() {
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -21,18 +22,29 @@ export function LoginPage() {
     e.preventDefault()
     setError('')
 
-    if (!username.trim() || !password.trim()) {
+    if (!email.trim() || !password.trim()) {
       setError('Preencha todos os campos')
+      return
+    }
+    if (password !== confirmPassword) {
+      setError('As senhas não coincidem')
+      return
+    }
+    if (password.length < 6) {
+      setError('A senha deve ter pelo menos 6 caracteres')
       return
     }
 
     setLoading(true)
     try {
-      const res = await authApi.login({ username: username.trim(), password })
+      const res = await authApi.register({
+        username: email.trim().toLowerCase(),
+        password,
+      })
       login(res.data.token, res.data.username, res.data.is_admin)
       navigate('/')
     } catch (err: any) {
-      setError(err.message || 'Erro ao fazer login')
+      setError(err.message || 'Erro ao criar conta')
     } finally {
       setLoading(false)
     }
@@ -48,26 +60,26 @@ export function LoginPage() {
           </div>
           <h1 className="text-2xl font-bold text-foreground">Cloner Grupo</h1>
           <p className="text-muted-foreground text-sm">
-            Faça login para acessar o painel
+            Crie sua conta para começar
           </p>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Entrar</CardTitle>
+            <CardTitle className="text-lg">Criar Conta</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">Email</Label>
+                <Label htmlFor="email">Email</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
                   <Input
-                    id="username"
+                    id="email"
                     type="email"
                     placeholder="seu@email.com"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="pl-10"
                     autoFocus
                   />
@@ -81,7 +93,7 @@ export function LoginPage() {
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Sua senha"
+                    placeholder="Mínimo 6 caracteres"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10 pr-10"
@@ -96,6 +108,21 @@ export function LoginPage() {
                 </div>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirmar Senha</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+                  <Input
+                    id="confirmPassword"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Repita a senha"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
               {error && (
                 <div className="p-3 rounded-lg bg-error/10 border border-error/20 text-error text-sm">
                   {error}
@@ -103,13 +130,13 @@ export function LoginPage() {
               )}
 
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Entrando...' : 'Entrar'}
+                {loading ? 'Criando conta...' : 'Criar Conta'}
               </Button>
 
               <p className="text-center text-sm text-muted-foreground">
-                Não tem conta?{' '}
-                <Link to="/register" className="text-primary font-medium hover:underline">
-                  Criar conta
+                Já tem conta?{' '}
+                <Link to="/login" className="text-primary font-medium hover:underline">
+                  Fazer login
                 </Link>
               </p>
             </form>

@@ -21,17 +21,19 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 
-const navigation = [
+// Lead menu — what regular users see
+const leadNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Novo Job', href: '/jobs/new', icon: Plus },
   { name: 'Jobs', href: '/jobs', icon: Copy },
-  { name: 'Contas Telegram', href: '/accounts', icon: Users },
   { name: 'Créditos', href: '/credits', icon: Coins },
-  { name: 'Logs', href: '/logs', icon: ScrollText },
-  { name: 'Configurações', href: '/settings', icon: Settings },
 ]
 
-const adminNavigation = [
+// Admin-only extras
+const adminExtras = [
+  { name: 'Contas Telegram', href: '/accounts', icon: Users },
+  { name: 'Logs', href: '/logs', icon: ScrollText },
+  { name: 'Configurações', href: '/settings', icon: Settings },
   { name: 'Painel Admin', href: '/admin', icon: Shield },
 ]
 
@@ -84,7 +86,7 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 px-2 py-4">
-          {navigation.map((item) => {
+          {leadNavigation.map((item) => {
             const link = (
               <NavLink
                 key={item.name}
@@ -123,7 +125,7 @@ export function Sidebar() {
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Admin</p>
                 )}
               </div>
-              {adminNavigation.map((item) => {
+              {adminExtras.map((item) => {
                 const adminLink = (
                   <NavLink
                     key={item.name}

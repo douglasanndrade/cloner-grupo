@@ -72,7 +72,13 @@ async function request<T>(
 
 export const authApi = {
   login: (data: LoginRequest) =>
-    request<ApiResponse<LoginResponse>>('/auth/login', {
+    request<ApiResponse<{ token: string; username: string; is_admin: boolean }>>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  register: (data: { username: string; password: string; name?: string }) =>
+    request<ApiResponse<{ token: string; username: string; is_admin: boolean }>>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
     }),

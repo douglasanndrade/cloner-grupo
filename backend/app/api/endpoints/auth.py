@@ -26,6 +26,45 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    name: str | None = None
+
+
+@router.post("/register")
+async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """Public registration — creates a new lead account (not admin)."""
+    username = body.username.strip().lower()
+    if len(username) < 3:
+        raise HTTPException(400, "Email/usuário deve ter pelo menos 3 caracteres")
+    if len(body.password) < 6:
+        raise HTTPException(400, "Senha deve ter pelo menos 6 caracteres")
+
+    # Check if exists
+    existing = await db.execute(select(User).where(User.username == username))
+    if existing.scalar_one_or_none():
+        raise HTTPException(400, "Este email já está cadastrado")
+
+    user = User(
+        username=username,
+        password_hash=_hash_password(body.password),
+        is_admin=False,
+        credits_basic=0,
+        credits_standard=0,
+        credits_premium=0,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    token = auth_service.generate_token(user.username)
+    return {
+        "data": {"token": token, "username": user.username, "is_admin": False},
+        "message": "Conta criada com sucesso",
+    }
+
+
 @router.post("/login")
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = await auth_service.authenticate(db, body.username, body.password)
@@ -34,7 +73,11 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     token = auth_service.generate_token(user.username)
     return {
-        "data": LoginResponse(token=token, username=user.username),
+        "data": {
+            "token": token,
+            "username": user.username,
+            "is_admin": getattr(user, 'is_admin', False),
+        },
         "message": "Login realizado com sucesso",
     }
 
