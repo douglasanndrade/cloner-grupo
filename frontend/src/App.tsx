@@ -5,6 +5,7 @@ import { ProtectedRoute } from '@/components/auth/protected-route'
 import { AppLayout } from '@/components/layout/app-layout'
 import { LoginPage } from '@/pages/login'
 import { RegisterPage } from '@/pages/register'
+import { ForgotPasswordPage } from '@/pages/forgot-password'
 import { DashboardPage } from '@/pages/dashboard'
 import { AccountsPage } from '@/pages/accounts'
 import { NewJobPage } from '@/pages/new-job'
@@ -33,6 +34,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route
               element={
                 <ProtectedRoute>

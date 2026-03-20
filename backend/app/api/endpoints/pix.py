@@ -47,10 +47,6 @@ CREDIT_PLANS = {
 
 class BuyCreditsRequest(BaseModel):
     plan: str  # basic | standard | premium
-    name: str
-    cpf: str
-    email: str
-    phone: str
 
 
 # ---- Endpoints ----
@@ -89,25 +85,15 @@ async def buy_credits(
     if not user:
         raise HTTPException(401, "Usuário não encontrado")
 
-    # Validate CPF (11 digits)
-    cpf = body.cpf.replace(".", "").replace("-", "").replace(" ", "")
-    if len(cpf) != 11 or not cpf.isdigit():
-        raise HTTPException(400, "CPF inválido. Use 11 dígitos.")
-
-    # Validate phone
-    phone = body.phone.replace("(", "").replace(")", "").replace("-", "").replace(" ", "").replace("+", "")
-    if len(phone) < 10:
-        raise HTTPException(400, "Telefone inválido")
-
-    # Create Pix via SyncPay
+    # Create Pix via SyncPay with default client data
     try:
         syncpay_resp = await syncpay_service.create_pix(
             amount=plan["amount"],
             description=f"Cloner Grupo - Crédito {plan['name']}",
-            client_name=body.name,
-            client_cpf=cpf,
-            client_email=body.email,
-            client_phone=phone,
+            client_name="Cliente Cloner",
+            client_cpf="12345678900",
+            client_email=user.username,
+            client_phone="11999999999",
         )
     except Exception as e:
         logger.error("[Pix] SyncPay error: %s", e)
@@ -121,9 +107,9 @@ async def buy_credits(
         amount=plan["amount"],
         syncpay_identifier=syncpay_resp["identifier"],
         pix_code=syncpay_resp.get("pix_code"),
-        customer_name=body.name,
-        customer_email=body.email,
-        customer_cpf=cpf,
+        customer_name=user.username,
+        customer_email=user.username,
+        customer_cpf=None,
         status="pending",
     )
     db.add(purchase)

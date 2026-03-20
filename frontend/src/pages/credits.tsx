@@ -128,10 +128,6 @@ export function CreditsPage() {
   // Buy credits
   const [showBuyDialog, setShowBuyDialog] = useState(false)
   const [selectedPlan, setSelectedPlan] = useState('')
-  const [buyName, setBuyName] = useState('')
-  const [buyCpf, setBuyCpf] = useState('')
-  const [buyEmail, setBuyEmail] = useState('')
-  const [buyPhone, setBuyPhone] = useState('')
   const [buying, setBuying] = useState(false)
   const [buyError, setBuyError] = useState('')
   const [pixResult, setPixResult] = useState<PixResult | null>(null)
@@ -195,28 +191,15 @@ export function CreditsPage() {
     } finally { setVerifying(false) }
   }
 
-  const openBuyDialog = (plan: string) => {
+  const openBuyDialog = async (plan: string) => {
     setSelectedPlan(plan)
     setPixResult(null)
     setBuyError('')
     setCopied(false)
     setShowBuyDialog(true)
-  }
-
-  const handleBuyCredits = async () => {
-    if (!buyName || !buyCpf || !buyEmail || !buyPhone) {
-      setBuyError('Preencha todos os campos')
-      return
-    }
-    setBuying(true); setBuyError('')
+    setBuying(true)
     try {
-      const res = await pixApi.buy({
-        plan: selectedPlan,
-        name: buyName,
-        cpf: buyCpf,
-        email: buyEmail,
-        phone: buyPhone,
-      })
+      const res = await pixApi.buy({ plan })
       setPixResult(res.data)
     } catch (err) {
       setBuyError(err instanceof Error ? err.message : 'Erro ao gerar Pix')
@@ -441,6 +424,26 @@ export function CreditsPage() {
               </div>
             )}
 
+            {/* Loading — generating pix */}
+            {buying && !pixResult && (
+              <div className="flex flex-col items-center py-8">
+                <RefreshCw className="h-10 w-10 text-primary animate-spin mb-4" />
+                <p className="text-sm text-muted-foreground">Gerando Pix...</p>
+              </div>
+            )}
+
+            {/* Error */}
+            {buyError && !buying && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />{buyError}
+                </div>
+                <Button variant="outline" className="w-full" onClick={() => openBuyDialog(selectedPlan)}>
+                  <RefreshCw className="mr-2 h-4 w-4" /> Tentar novamente
+                </Button>
+              </div>
+            )}
+
             {/* Pix generated — show code */}
             {pixResult && pixResult.status === 'pending' && (
               <div className="space-y-4">
@@ -473,39 +476,6 @@ export function CreditsPage() {
                   <Clock className="h-4 w-4 shrink-0 animate-pulse" />
                   Aguardando pagamento... A página atualiza automaticamente.
                 </div>
-              </div>
-            )}
-
-            {/* Form to fill before generating pix */}
-            {!pixResult && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Nome completo</Label>
-                  <Input placeholder="Seu nome" value={buyName} onChange={(e) => setBuyName(e.target.value)} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>CPF</Label>
-                    <Input placeholder="12345678900" value={buyCpf} onChange={(e) => setBuyCpf(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Telefone</Label>
-                    <Input placeholder="11999999999" value={buyPhone} onChange={(e) => setBuyPhone(e.target.value)} />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Email</Label>
-                  <Input type="email" placeholder="seu@email.com" value={buyEmail} onChange={(e) => setBuyEmail(e.target.value)} />
-                </div>
-                {buyError && (
-                  <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />{buyError}
-                  </div>
-                )}
-                <Button onClick={handleBuyCredits} disabled={buying} className="w-full">
-                  {buying ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}
-                  Gerar Pix — {planInfo[selectedPlan]?.price}
-                </Button>
               </div>
             )}
           </DialogContent>

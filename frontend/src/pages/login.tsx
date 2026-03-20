@@ -106,12 +106,14 @@ export function LoginPage() {
                 {loading ? 'Entrando...' : 'Entrar'}
               </Button>
 
-              <p className="text-center text-sm text-muted-foreground">
-                Não tem conta?{' '}
+              <div className="flex items-center justify-between text-sm">
+                <Link to="/forgot-password" className="text-muted-foreground hover:text-primary transition-colors">
+                  Esqueci minha senha
+                </Link>
                 <Link to="/register" className="text-primary font-medium hover:underline">
                   Criar conta
                 </Link>
-              </p>
+              </div>
             </form>
           </CardContent>
         </Card>
