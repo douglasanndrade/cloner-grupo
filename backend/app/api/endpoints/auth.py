@@ -34,18 +34,28 @@ class RegisterRequest(BaseModel):
 
 @router.post("/register")
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    """Public registration — creates a new lead account (not admin)."""
+    """Public registration — creates account + sends confirmation email via Supabase."""
+    from app.services.supabase_auth import signup_for_confirmation
+
     username = body.username.strip().lower()
     if len(username) < 3:
-        raise HTTPException(400, "Email/usuário deve ter pelo menos 3 caracteres")
+        raise HTTPException(400, "Email deve ter pelo menos 3 caracteres")
+    if "@" not in username:
+        raise HTTPException(400, "Informe um email válido")
     if len(body.password) < 6:
         raise HTTPException(400, "Senha deve ter pelo menos 6 caracteres")
 
-    # Check if exists
+    # Check if exists in our DB
     existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
         raise HTTPException(400, "Este email já está cadastrado")
 
+    # Send confirmation email via Supabase Auth
+    supa_result = await signup_for_confirmation(username, body.password)
+    if "error" in supa_result:
+        raise HTTPException(400, f"Erro ao enviar email de confirmação: {supa_result['error']}")
+
+    # Create user in our DB (email not confirmed yet)
     user = User(
         username=username,
         password_hash=_hash_password(body.password),
@@ -58,18 +68,28 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
-    token = auth_service.generate_token(user.username)
     return {
-        "data": {"token": token, "username": user.username, "is_admin": False},
-        "message": "Conta criada com sucesso",
+        "data": {"username": user.username, "email_sent": True},
+        "message": "Conta criada! Verifique seu email para confirmar o cadastro.",
     }
 
 
 @router.post("/login")
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+    from app.services.supabase_auth import check_email_confirmed
+
     user = await auth_service.authenticate(db, body.username, body.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
+
+    # Skip email check for admin
+    if not getattr(user, 'is_admin', False):
+        confirmed = await check_email_confirmed(body.username.strip().lower(), body.password)
+        if not confirmed:
+            raise HTTPException(
+                status_code=403,
+                detail="Email não confirmado. Verifique sua caixa de entrada e clique no link de confirmação.",
+            )
 
     token = auth_service.generate_token(user.username)
     return {

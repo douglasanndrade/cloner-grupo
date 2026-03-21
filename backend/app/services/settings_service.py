@@ -21,6 +21,8 @@ DEFAULTS = {
     "syncpay_client_id": "cadc17a6-3724-4e2a-b32c-b88bd5f8e6c4",
     "syncpay_client_secret": "a89657d4-d09a-4ae7-afd4-1ddd6af9025b",
     "syncpay_webhook_url": "https://cloner-grupo-backend.68tvlf.easypanel.host/api/webhooks/syncpay",
+    "supabase_url": "https://nvyvjhrfsbifygrmezlh.supabase.co",
+    "supabase_anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52eXZqaHJmc2JpZnlncm1lemxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMTQ1MzQsImV4cCI6MjA4ODY5MDUzNH0.iT9BZXidiqcRovp646psdsxgcCP7L3tdEGQtqfz3yAo",
 }
 
 
@@ -46,6 +48,8 @@ async def get_all_settings(db: AsyncSession) -> dict:
         "syncpay_client_id": merged["syncpay_client_id"],
         "syncpay_client_secret": merged["syncpay_client_secret"],
         "syncpay_webhook_url": merged["syncpay_webhook_url"],
+        "supabase_url": merged["supabase_url"],
+        "supabase_anon_key": merged["supabase_anon_key"],
     }
 
 

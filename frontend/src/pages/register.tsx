@@ -1,22 +1,20 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { useAuthStore } from '@/stores/auth-store'
+import { Link } from 'react-router-dom'
 import { authApi } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Copy, Eye, EyeOff, Lock, User, Mail } from 'lucide-react'
+import { Copy, Eye, EyeOff, Lock, Mail, CheckCircle2 } from 'lucide-react'
 
 export function RegisterPage() {
-  const navigate = useNavigate()
-  const login = useAuthStore((s) => s.login)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,12 +35,11 @@ export function RegisterPage() {
 
     setLoading(true)
     try {
-      const res = await authApi.register({
+      await authApi.register({
         username: email.trim().toLowerCase(),
         password,
       })
-      login(res.data.token, res.data.username, res.data.is_admin)
-      navigate('/')
+      setSuccess(true)
     } catch (err: any) {
       setError(err.message || 'Erro ao criar conta')
     } finally {
@@ -64,6 +61,32 @@ export function RegisterPage() {
           </p>
         </div>
 
+        {success ? (
+          <Card>
+            <CardContent className="pt-8 pb-8">
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-success/10">
+                  <CheckCircle2 className="h-8 w-8 text-success" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-foreground">Verifique seu email</h2>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Enviamos um link de confirmação para
+                  </p>
+                  <p className="text-sm font-medium text-primary mt-1">{email}</p>
+                  <p className="text-xs text-muted-foreground mt-3">
+                    Clique no link do email para ativar sua conta. Depois é só fazer login.
+                  </p>
+                </div>
+                <Link to="/login" className="w-full">
+                  <Button variant="outline" className="w-full mt-2">
+                    Ir para o Login
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Criar Conta</CardTitle>
@@ -142,6 +165,7 @@ export function RegisterPage() {
             </form>
           </CardContent>
         </Card>
+        )}
 
         <p className="text-center text-xs text-muted">
           Cloner Grupo &copy; {new Date().getFullYear()}
