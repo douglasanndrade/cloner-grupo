@@ -11,6 +11,7 @@ from app.db.session import get_db, async_session
 from app.models.user import User
 from app.models.credit_purchase import CreditPurchase
 from app.models.setting import AppSetting
+from app.models.job_log import CloneJobLog
 from app.api.deps import require_auth
 from app.services import syncpay_service
 
@@ -79,6 +80,7 @@ async def _get_plans(db: AsyncSession) -> dict:
 
 class BuyCreditsRequest(BaseModel):
     plan: str  # basic | standard | premium
+    quantity: int = 1  # how many credits
 
 
 class UpdatePlansRequest(BaseModel):
@@ -121,6 +123,10 @@ async def buy_credits(
     if not plan.get("active", True):
         raise HTTPException(400, "Este plano está desativado")
 
+    qty = max(1, min(body.quantity, 50))  # limit 1-50
+    total_amount = round(plan["amount"] * qty, 2)
+    total_credits = plan["credits"] * qty
+
     # Get user
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
@@ -130,8 +136,8 @@ async def buy_credits(
     # Create Pix via SyncPay with default client data
     try:
         syncpay_resp = await syncpay_service.create_pix(
-            amount=plan["amount"],
-            description=f"Cloner Grupo - Crédito {plan['name']}",
+            amount=total_amount,
+            description=f"Cloner Grupo - {qty}x Crédito {plan['name']}",
             client_name="Cliente Cloner",
             client_cpf="12345678900",
             client_email=user.username,
@@ -145,8 +151,8 @@ async def buy_credits(
     purchase = CreditPurchase(
         user_id=user.id,
         plan=body.plan,
-        credits=plan["credits"],
-        amount=plan["amount"],
+        credits=total_credits,
+        amount=total_amount,
         syncpay_identifier=syncpay_resp["identifier"],
         pix_code=syncpay_resp.get("pix_code"),
         customer_name=user.username,
@@ -155,6 +161,15 @@ async def buy_credits(
         status="pending",
     )
     db.add(purchase)
+
+    # Log: Pix gerado
+    db.add(CloneJobLog(
+        job_id=None,
+        level="info",
+        message=f"[PIX] Gerado R$ {total_amount:.2f} — {qty}x {plan['name']} — {user.username}",
+        details=f"identifier={syncpay_resp['identifier']}",
+    ))
+
     await db.commit()
     await db.refresh(purchase)
 
@@ -163,8 +178,10 @@ async def buy_credits(
             "purchase_id": purchase.id,
             "plan": body.plan,
             "plan_name": plan["name"],
-            "amount": plan["amount"],
-            "amount_formatted": f"R$ {plan['amount']:.2f}".replace(".", ","),
+            "quantity": qty,
+            "credits": total_credits,
+            "amount": total_amount,
+            "amount_formatted": f"R$ {total_amount:.2f}".replace(".", ","),
             "pix_code": syncpay_resp.get("pix_code", ""),
             "identifier": syncpay_resp["identifier"],
             "status": "pending",

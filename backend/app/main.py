@@ -69,16 +69,6 @@ async def lifespan(app: FastAPI):
     from sqlalchemy import text
     async with async_session() as db:
         await ensure_default_user(db)
-        # Set 50 credits for users that have 0 of all (first-time setup)
-        try:
-            await db.execute(text("""
-                UPDATE users
-                SET credits_basic = 50, credits_standard = 50, credits_premium = 50
-                WHERE credits_basic = 0 AND credits_standard = 0 AND credits_premium = 0
-            """))
-            await db.commit()
-        except Exception:
-            await db.rollback()
     # Start background worker
     if settings.worker_enabled:
         start_worker()

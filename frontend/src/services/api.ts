@@ -286,7 +286,7 @@ export const pixApi = {
   plans: () =>
     request<ApiResponse<any[]>>('/pix/plans'),
 
-  buy: (data: { plan: string }) =>
+  buy: (data: { plan: string; quantity?: number }) =>
     request<ApiResponse<any>>('/pix/buy', {
       method: 'POST',
       body: JSON.stringify(data),

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Coins, RefreshCw, Search, AlertTriangle, Plus, CheckCircle2,
-  QrCode, Copy, Clock, ShoppingCart, History,
+  QrCode, Copy, Clock, ShoppingCart, History, Minus,
 } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +39,8 @@ interface PixResult {
   purchase_id: number
   plan: string
   plan_name: string
+  quantity: number
+  credits: number
   amount: number
   amount_formatted: string
   pix_code: string
@@ -128,6 +131,7 @@ export function CreditsPage() {
   // Buy credits
   const [showBuyDialog, setShowBuyDialog] = useState(false)
   const [selectedPlan, setSelectedPlan] = useState('')
+  const [quantity, setQuantity] = useState(1)
   const [buying, setBuying] = useState(false)
   const [buyError, setBuyError] = useState('')
   const [pixResult, setPixResult] = useState<PixResult | null>(null)
@@ -191,15 +195,20 @@ export function CreditsPage() {
     } finally { setVerifying(false) }
   }
 
-  const openBuyDialog = async (plan: string) => {
+  const openBuyDialog = (plan: string) => {
     setSelectedPlan(plan)
+    setQuantity(1)
     setPixResult(null)
     setBuyError('')
     setCopied(false)
     setShowBuyDialog(true)
+  }
+
+  const handleGeneratePix = async () => {
     setBuying(true)
+    setBuyError('')
     try {
-      const res = await pixApi.buy({ plan })
+      const res = await pixApi.buy({ plan: selectedPlan, quantity })
       setPixResult(res.data)
     } catch (err) {
       setBuyError(err instanceof Error ? err.message : 'Erro ao gerar Pix')
@@ -418,9 +427,62 @@ export function CreditsPage() {
                 <CheckCircle2 className="h-16 w-16 text-success mb-4" />
                 <p className="text-lg font-bold text-foreground">Pagamento confirmado!</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  1 crédito {pixResult.plan_name} adicionado
+                  {pixResult.credits}x crédito {pixResult.plan_name} adicionado
                 </p>
                 <Button className="mt-4 w-full" onClick={closeBuyDialog}>Fechar</Button>
+              </div>
+            )}
+
+            {/* Step 1: Choose quantity */}
+            {!pixResult && !buying && !buyError && (
+              <div className="space-y-5">
+                <div className="text-center p-4 rounded-lg bg-surface border border-border">
+                  <p className="text-xs text-muted-foreground mb-1">Quantos grupos você quer clonar?</p>
+                  <div className="flex items-center justify-center gap-4 mt-3">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                      disabled={quantity <= 1}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <span className="text-4xl font-bold text-foreground w-16 text-center">{quantity}</span>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setQuantity(Math.min(50, quantity + 1))}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {quantity} crédito{quantity > 1 ? 's' : ''} {planInfo[selectedPlan]?.name}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Preço unitário:</span>
+                    <span className="text-foreground">{planInfo[selectedPlan]?.price}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Quantidade:</span>
+                    <span className="text-foreground">{quantity}x</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between text-base font-bold">
+                    <span className="text-foreground">Total:</span>
+                    <span className="text-primary">
+                      R$ {(parseFloat(planInfo[selectedPlan]?.price.replace('R$ ', '').replace(',', '.') || '0') * quantity).toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                </div>
+
+                <Button onClick={handleGeneratePix} className="w-full" size="lg">
+                  <QrCode className="mr-2 h-4 w-4" />
+                  Gerar Pix
+                </Button>
               </div>
             )}
 
@@ -438,43 +500,56 @@ export function CreditsPage() {
                 <div className="flex items-center gap-2 rounded-lg bg-error/10 border border-error/20 p-3 text-sm text-error">
                   <AlertTriangle className="h-4 w-4 shrink-0" />{buyError}
                 </div>
-                <Button variant="outline" className="w-full" onClick={() => openBuyDialog(selectedPlan)}>
+                <Button variant="outline" className="w-full" onClick={() => { setBuyError(''); }}>
                   <RefreshCw className="mr-2 h-4 w-4" /> Tentar novamente
                 </Button>
               </div>
             )}
 
-            {/* Pix generated — show code */}
+            {/* Pix generated — QR Code + copy */}
             {pixResult && pixResult.status === 'pending' && (
               <div className="space-y-4">
-                <div className="text-center p-4 rounded-lg bg-surface border border-border">
-                  <QrCode className="h-8 w-8 text-primary mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-foreground">{pixResult.amount_formatted}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Plano {pixResult.plan_name}</p>
+                {/* QR Code */}
+                <div className="flex flex-col items-center p-5 rounded-lg bg-white">
+                  <QRCodeSVG
+                    value={pixResult.pix_code}
+                    size={220}
+                    level="M"
+                    includeMargin={false}
+                  />
                 </div>
 
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-foreground">{pixResult.amount_formatted}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {pixResult.credits || quantity}x Crédito {pixResult.plan_name}
+                  </p>
+                </div>
+
+                {/* Copy paste */}
                 <div className="space-y-2">
                   <Label className="text-xs">Pix Copia e Cola</Label>
                   <div className="relative">
                     <textarea
                       readOnly
                       value={pixResult.pix_code}
-                      className="w-full h-20 text-xs font-mono bg-surface border border-border rounded-lg p-3 text-foreground resize-none"
+                      className="w-full h-16 text-[10px] font-mono bg-surface border border-border rounded-lg p-2.5 text-foreground resize-none"
                     />
                     <Button
                       variant="outline"
                       size="sm"
-                      className="absolute top-2 right-2"
+                      className="absolute top-1.5 right-1.5"
                       onClick={handleCopyPix}
                     >
                       {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                      <span className="ml-1.5 text-xs">{copied ? 'Copiado!' : 'Copiar'}</span>
                     </Button>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 rounded-lg bg-warning/10 border border-warning/20 p-3 text-sm text-warning">
                   <Clock className="h-4 w-4 shrink-0 animate-pulse" />
-                  Aguardando pagamento... A página atualiza automaticamente.
+                  Aguardando pagamento... Atualiza automaticamente.
                 </div>
               </div>
             )}

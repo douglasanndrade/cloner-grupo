@@ -13,6 +13,7 @@ import {
   Zap,
   User,
   Shield,
+  HelpCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
@@ -28,6 +29,8 @@ const leadNavigation = [
   { name: 'Jobs', href: '/jobs', icon: Copy },
   { name: 'Créditos', href: '/credits', icon: Coins },
 ]
+
+const HELP_URL = 'https://www.instagram.com/douglasanndrade2/'
 
 // Admin-only extras
 const adminExtras = [
@@ -189,7 +192,19 @@ export function Sidebar() {
               <TooltipContent side="right">{username}</TooltipContent>
             </Tooltip>
           )}
-          <div className="flex gap-1">
+          <div className="space-y-1">
+            <a href={HELP_URL} target="_blank" rel="noopener noreferrer" className="block">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn('text-muted hover:text-primary w-full', sidebarCollapsed ? 'justify-center' : 'justify-start')}
+                title="Ajuda via Telegram"
+              >
+                <HelpCircle className="h-4 w-4" />
+                {!sidebarCollapsed && <span className="ml-2">Ajuda</span>}
+              </Button>
+            </a>
+            <div className="flex gap-1">
             <Button
               variant="ghost"
               size="sm"
@@ -212,6 +227,7 @@ export function Sidebar() {
                 <ChevronLeft className="h-4 w-4" />
               )}
             </Button>
+          </div>
           </div>
         </div>
       </aside>

@@ -146,9 +146,9 @@ export function AdminPage() {
   const [newUsername, setNewUsername] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [newIsAdmin, setNewIsAdmin] = useState(false)
-  const [newCreditsBasic, setNewCreditsBasic] = useState('50')
-  const [newCreditsStandard, setNewCreditsStandard] = useState('50')
-  const [newCreditsPremium, setNewCreditsPremium] = useState('50')
+  const [newCreditsBasic, setNewCreditsBasic] = useState('0')
+  const [newCreditsStandard, setNewCreditsStandard] = useState('0')
+  const [newCreditsPremium, setNewCreditsPremium] = useState('0')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
 
@@ -269,9 +269,9 @@ export function AdminPage() {
       setNewUsername('')
       setNewPassword('')
       setNewIsAdmin(false)
-      setNewCreditsBasic('50')
-      setNewCreditsStandard('50')
-      setNewCreditsPremium('50')
+      setNewCreditsBasic('0')
+      setNewCreditsStandard('0')
+      setNewCreditsPremium('0')
       setMessage('Usuário criado com sucesso!')
       fetchUsers()
     } catch (err) {
@@ -364,11 +364,19 @@ export function AdminPage() {
 
     const handleQuickCredits = async (field: string, amount: number) => {
       try {
+        const current = (u as any)[field] || 0
         const update: any = {}
-        update[field] = (u as any)[field] + amount
+        update[field] = current + amount
         await adminApi.updateUser(u.id, update)
+        // Update locally immediately
+        setUserDetail((prev) => {
+          if (!prev) return prev
+          return {
+            ...prev,
+            user: { ...prev.user, [field]: current + amount },
+          }
+        })
         setMessage(`+${amount} crédito adicionado!`)
-        openGodEye(selectedUserId)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erro')
       }

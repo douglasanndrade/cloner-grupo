@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.db.session import async_session
 from app.models.credit_purchase import CreditPurchase
 from app.models.user import User
+from app.models.job_log import CloneJobLog
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,15 @@ async def syncpay_webhook(request: Request):
                         purchase.credits, purchase.plan, user.username,
                         current + purchase.credits,
                     )
+
+                # Log: Pix pago
+                plan_labels = {"basic": "Básico", "standard": "Standard", "premium": "Premium"}
+                db.add(CloneJobLog(
+                    job_id=None,
+                    level="success",
+                    message=f"[PIX PAGO] R$ {purchase.amount:.2f} — {purchase.credits}x {plan_labels.get(purchase.plan, purchase.plan)} — {user.username}",
+                    details=f"purchase_id={purchase.id} end_to_end={data.get('end_to_end', '')}",
+                ))
 
             await db.commit()
             return {"status": "ok", "purchase_id": purchase.id}
