@@ -92,8 +92,8 @@ async def create_pix(
         },
     }
 
-    callback = webhook_url or db_webhook_url or DEFAULT_WEBHOOK_URL
-    payload["webhook_url"] = callback
+    # Don't send webhook_url — we use global webhook registered at startup
+    # Sending both causes duplicate webhook calls
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -116,10 +116,9 @@ async def create_pix(
         data = resp.json()
 
     logger.info(
-        "[SyncPay] Pix created: identifier=%s amount=%.2f webhook=%s",
+        "[SyncPay] Pix created: identifier=%s amount=%.2f",
         data.get("identifier"),
         amount,
-        callback,
     )
     return data
 
