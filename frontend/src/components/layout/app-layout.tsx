@@ -1,20 +1,30 @@
 import { useState, useEffect } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Sidebar } from './sidebar'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 import { accountsApi } from '@/services/api'
-import { AlertTriangle, X } from 'lucide-react'
+import { useAuthStore } from '@/stores/auth-store'
+import { AlertTriangle, X, Menu } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 export function AppLayout() {
   const { sidebarCollapsed } = useAppStore()
+  const isAdmin = useAuthStore((s) => s.isAdmin)
   const navigate = useNavigate()
+  const location = useLocation()
   const [disconnectedAccounts, setDisconnectedAccounts] = useState<string[]>([])
   const [showModal, setShowModal] = useState(false)
   const [dismissed, setDismissed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [location.pathname])
 
   useEffect(() => {
-    // Check session status on load
+    if (!isAdmin) return
     accountsApi.list().then(async (res) => {
       const accounts = res.data
       const down: string[] = []
@@ -48,14 +58,37 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar />
+      {/* Mobile header */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-14 border-b border-border bg-background/95 backdrop-blur-sm flex items-center px-4">
+        <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)}>
+          <Menu className="h-5 w-5" />
+        </Button>
+        <span className="ml-3 font-bold text-foreground">Cloner Grupo</span>
+      </div>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
+          <div className="relative z-10">
+            <Sidebar />
+          </div>
+        </div>
+      )}
+
+      {/* Desktop sidebar */}
+      <div className="hidden lg:block">
+        <Sidebar />
+      </div>
+
       <main
         className={cn(
           'min-h-screen transition-all duration-300',
-          sidebarCollapsed ? 'ml-16' : 'ml-64'
+          'pt-14 lg:pt-0', // mobile top padding for header
+          sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'
         )}
       >
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <Outlet />
         </div>
       </main>

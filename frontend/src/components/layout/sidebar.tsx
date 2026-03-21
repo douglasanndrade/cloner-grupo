@@ -64,7 +64,8 @@ export function Sidebar() {
       <aside
         className={cn(
           'fixed left-0 top-0 z-40 h-screen border-r border-border bg-sidebar transition-all duration-300 flex flex-col',
-          sidebarCollapsed ? 'w-16' : 'w-64'
+          'w-64 lg:w-64',
+          sidebarCollapsed && 'lg:w-16'
         )}
       >
         {/* Logo */}
