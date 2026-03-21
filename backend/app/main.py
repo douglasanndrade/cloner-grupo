@@ -69,6 +69,12 @@ async def lifespan(app: FastAPI):
     from sqlalchemy import text
     async with async_session() as db:
         await ensure_default_user(db)
+    # Register SyncPay webhook (safe to call multiple times)
+    try:
+        from app.services.syncpay_service import register_webhook
+        await register_webhook()
+    except Exception as e:
+        print(f"[STARTUP] SyncPay webhook registration: {e}")
     # Start background worker
     if settings.worker_enabled:
         start_worker()

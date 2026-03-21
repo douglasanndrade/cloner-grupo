@@ -303,3 +303,38 @@ async def admin_update_plans(
 
     await db.commit()
     return {"data": body.plans, "message": "Planos atualizados com sucesso"}
+
+
+@router.post("/admin/approve/{purchase_id}")
+async def admin_approve_purchase(
+    purchase_id: int,
+    username: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin: manually approve a pending purchase and add credits."""
+    from app.api.endpoints.admin import _require_admin
+    from datetime import datetime
+    await _require_admin(username, db)
+
+    purchase = await db.get(CreditPurchase, purchase_id)
+    if not purchase:
+        raise HTTPException(404, "Compra não encontrada")
+    if purchase.status == "completed":
+        raise HTTPException(400, "Compra já foi aprovada")
+
+    purchase.status = "completed"
+    purchase.paid_at = datetime.utcnow()
+
+    # Add credits
+    user = await db.get(User, purchase.user_id)
+    if user:
+        credit_field = CREDIT_FIELD_MAP.get(purchase.plan)
+        if credit_field:
+            current = getattr(user, credit_field, 0)
+            setattr(user, credit_field, current + purchase.credits)
+
+    await db.commit()
+    return {
+        "data": None,
+        "message": f"Compra #{purchase_id} aprovada. {purchase.credits}x crédito(s) adicionados.",
+    }

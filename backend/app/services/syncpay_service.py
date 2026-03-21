@@ -11,6 +11,7 @@ from app.models.setting import AppSetting
 logger = logging.getLogger(__name__)
 
 SYNCPAY_BASE_URL = "https://api.syncpayments.com.br"
+DEFAULT_WEBHOOK_URL = "https://cloner-grupo-backend.68tvlf.easypanel.host/api/webhooks/syncpay"
 
 # Cached token
 _token: str | None = None
@@ -91,9 +92,8 @@ async def create_pix(
         },
     }
 
-    callback = webhook_url or db_webhook_url
-    if callback:
-        payload["webhook_url"] = callback
+    callback = webhook_url or db_webhook_url or DEFAULT_WEBHOOK_URL
+    payload["webhook_url"] = callback
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -116,8 +116,39 @@ async def create_pix(
         data = resp.json()
 
     logger.info(
-        "[SyncPay] Pix created: identifier=%s amount=%.2f",
+        "[SyncPay] Pix created: identifier=%s amount=%.2f webhook=%s",
         data.get("identifier"),
         amount,
+        callback,
     )
     return data
+
+
+async def register_webhook() -> dict | None:
+    """Register global webhook at SyncPay for cashin events. Safe to call multiple times."""
+    try:
+        token = await _get_token()
+        url = f"{SYNCPAY_BASE_URL}/api/partner/v1/webhooks"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        payload = {
+            "title": "Cloner Grupo - Pagamentos",
+            "url": DEFAULT_WEBHOOK_URL,
+            "event": "cashin",
+            "trigger_all_products": True,
+        }
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+
+        data = resp.json()
+        if resp.status_code in (200, 201):
+            logger.info("[SyncPay] Webhook registered: %s", data)
+        else:
+            logger.info("[SyncPay] Webhook register response: %s %s", resp.status_code, data)
+        return data
+    except Exception as e:
+        logger.error("[SyncPay] Failed to register webhook: %s", e)
+        return None
