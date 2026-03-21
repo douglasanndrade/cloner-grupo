@@ -32,10 +32,20 @@ async def list_jobs(
     status: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    username: str = Depends(require_auth),
     db: AsyncSession = Depends(get_db),
 ):
+    # Get user — leads only see their own jobs
+    user_result = await db.execute(select(User).where(User.username == username))
+    user = user_result.scalar_one_or_none()
+    is_admin = user and getattr(user, 'is_admin', False)
+
     query = select(CloneJob)
     count_query = select(func.count(CloneJob.id))
+
+    if not is_admin and user:
+        query = query.where(CloneJob.user_id == user.id)
+        count_query = count_query.where(CloneJob.user_id == user.id)
 
     if status:
         query = query.where(CloneJob.status == status)
@@ -60,10 +70,19 @@ async def list_jobs(
 
 
 @router.get("/{job_id}", response_model=ApiResponse[JobOut])
-async def get_job(job_id: int, db: AsyncSession = Depends(get_db)):
+async def get_job(
+    job_id: int,
+    username: str = Depends(require_auth),
+    db: AsyncSession = Depends(get_db),
+):
     from app.models.entity import TelegramEntity
     job = await db.get(CloneJob, job_id)
     if not job:
+        raise HTTPException(404, "Job não encontrado")
+    # Check ownership for non-admin
+    user_result = await db.execute(select(User).where(User.username == username))
+    user = user_result.scalar_one_or_none()
+    if user and not getattr(user, 'is_admin', False) and job.user_id != user.id:
         raise HTTPException(404, "Job não encontrado")
     # Enrich with telegram_ids for "Clonar Novamente"
     source_ent = await db.get(TelegramEntity, job.source_entity_id)
