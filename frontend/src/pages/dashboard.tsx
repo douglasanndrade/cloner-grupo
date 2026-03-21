@@ -105,7 +105,7 @@ export function DashboardPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -164,7 +164,7 @@ export function DashboardPage() {
       </div>
 
       {/* Charts & Recent */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3">
         {/* Jobs by Status - Pie */}
         <Card>
           <CardHeader>
@@ -267,25 +267,23 @@ export function DashboardPage() {
                   stats.recent_errors.map((log) => (
                     <div
                       key={log.id}
-                      className="flex items-start gap-3 rounded-lg border border-border p-3"
+                      className="rounded-lg border border-border p-3 overflow-hidden"
                     >
-                      {log.level === 'error' ? (
-                        <XCircle className="h-4 w-4 mt-0.5 text-error shrink-0" />
-                      ) : (
-                        <AlertTriangle className="h-4 w-4 mt-0.5 text-warning shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <LogLevelBadge level={log.level} />
-                          {log.job_id && (
-                            <Badge variant="outline">Job #{log.job_id}</Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">{log.message}</p>
-                        <p className="text-[10px] text-muted mt-1">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        {log.level === 'error' ? (
+                          <XCircle className="h-3.5 w-3.5 text-error shrink-0" />
+                        ) : (
+                          <AlertTriangle className="h-3.5 w-3.5 text-warning shrink-0" />
+                        )}
+                        <LogLevelBadge level={log.level} />
+                        {log.job_id && (
+                          <Badge variant="outline" className="text-[10px]">Job #{log.job_id}</Badge>
+                        )}
+                        <span className="text-[10px] text-muted ml-auto shrink-0">
                           {new Date(log.created_at).toLocaleString('pt-BR')}
-                        </p>
+                        </span>
                       </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2 break-all">{log.message}</p>
                     </div>
                   ))
                 )}
