@@ -137,6 +137,9 @@ export function CreditsPage() {
   const [pixResult, setPixResult] = useState<PixResult | null>(null)
   const [copied, setCopied] = useState(false)
 
+  // Plans from API
+  const [apiPlans, setApiPlans] = useState<{ id: string; name: string; description: string; amount: number; amount_formatted: string; credits: number }[]>([])
+
   // Purchase history
   const [purchases, setPurchases] = useState<Purchase[]>([])
 
@@ -164,6 +167,7 @@ export function CreditsPage() {
   useEffect(() => {
     fetchCredits()
     fetchPurchases()
+    pixApi.plans().then((res) => setApiPlans(res.data)).catch(() => {})
     accountsApi.list().then((res) => setAccounts(res.data)).catch(() => {})
   }, [])
 
@@ -240,10 +244,22 @@ export function CreditsPage() {
     premium: 'border-purple-500/30 bg-purple-500/5 text-purple-500',
   }
 
-  const planInfo: Record<string, { name: string; desc: string; price: string; color: string }> = {
-    basic: { name: 'Básico', desc: 'Grupos até 500 msgs', price: 'R$ 29,90', color: 'green' },
-    standard: { name: 'Standard', desc: 'Grupos 501-1000 msgs', price: 'R$ 49,90', color: 'blue' },
-    premium: { name: 'Premium', desc: 'Grupos +1000 msgs', price: 'R$ 99,90', color: 'purple' },
+  // Build planInfo from API (dynamic prices)
+  const defaultPlanInfo: Record<string, { name: string; desc: string; price: string; amount: number; color: string }> = {
+    basic: { name: 'Básico', desc: 'Grupos até 500 msgs', price: 'R$ 0,00', amount: 0, color: 'green' },
+    standard: { name: 'Standard', desc: 'Grupos 501-1000 msgs', price: 'R$ 0,00', amount: 0, color: 'blue' },
+    premium: { name: 'Premium', desc: 'Grupos +1000 msgs', price: 'R$ 0,00', amount: 0, color: 'purple' },
+  }
+  const planInfo: Record<string, { name: string; desc: string; price: string; amount: number; color: string }> = { ...defaultPlanInfo }
+  for (const p of apiPlans) {
+    const colorMap: Record<string, string> = { basic: 'green', standard: 'blue', premium: 'purple' }
+    planInfo[p.id] = {
+      name: p.name,
+      desc: p.description,
+      price: p.amount_formatted,
+      amount: p.amount,
+      color: colorMap[p.id] || 'gray',
+    }
   }
 
   const statusLabel: Record<string, { text: string; variant: 'success' | 'warning' | 'error' | 'secondary' }> = {
@@ -474,7 +490,7 @@ export function CreditsPage() {
                   <div className="flex justify-between text-base font-bold">
                     <span className="text-foreground">Total:</span>
                     <span className="text-primary">
-                      R$ {(parseFloat(planInfo[selectedPlan]?.price.replace('R$ ', '').replace(',', '.') || '0') * quantity).toFixed(2).replace('.', ',')}
+                      R$ {((planInfo[selectedPlan]?.amount || 0) * quantity).toFixed(2).replace('.', ',')}
                     </span>
                   </div>
                 </div>
