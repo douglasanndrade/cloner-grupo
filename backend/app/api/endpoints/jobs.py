@@ -166,6 +166,8 @@ async def create_job(
         oversized_policy=req.oversized_policy,
         date_from=date_from,
         date_to=date_to,
+        link_mode=req.link_mode,
+        link_replace_url=req.link_replace_url if req.link_mode == "replace" else None,
         notes=req.notes,
         status="pending",
     )

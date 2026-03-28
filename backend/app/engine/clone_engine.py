@@ -32,7 +32,28 @@ from app.models.entity import TelegramEntity
 from app.services.log_service import log
 from app.core.config import settings
 
+import re
+
 logger = logging.getLogger("cloner.engine")
+
+# Regex to match URLs in text
+_URL_REGEX = re.compile(
+    r'https?://[^\s<>\"\'\)]+|'      # http(s) links
+    r'(?<!\w)(?:www\.)[^\s<>\"\'\)]+|'  # www. links
+    r'(?<!\w)t\.me/[^\s<>\"\'\)]+'      # t.me links
+)
+
+
+def _process_links(text: str | None, link_mode: str, link_replace_url: str | None) -> str | None:
+    """Process links in text based on job link_mode setting."""
+    if not text or link_mode == "keep":
+        return text
+    if link_mode == "remove":
+        return _URL_REGEX.sub("", text).strip()
+    if link_mode == "replace" and link_replace_url:
+        return _URL_REGEX.sub(link_replace_url, text)
+    return text
+
 
 # 2 GB limit for regular accounts, 4 GB for premium
 REGULAR_SIZE_LIMIT = 2 * 1024 * 1024 * 1024
@@ -588,7 +609,12 @@ class CloneEngine:
                         f"[{progress}/{job.total_messages}] Enviando texto msg {msg.id}...",
                         job_id=self.job_id
                     )
-                    result = await client.send_message(dest_peer, msg.text)
+                    text = _process_links(msg.text, job.link_mode, job.link_replace_url)
+                    if not text:
+                        await self._save_item(db, job, msg, "skipped", error_msg="Texto vazio após remoção de links")
+                        await self._update_progress(db, job, "skipped")
+                        return
+                    result = await client.send_message(dest_peer, text)
                     await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
                     await self._update_progress(db, job, "success")
                     await log(db, "success",
@@ -721,7 +747,7 @@ class CloneEngine:
                 f"[{progress}/{job.total_messages}] ⬆ Enviando msg {msg.id} ({file_size_mb}MB) para o destino...",
                 job_id=self.job_id
             )
-            caption = msg.text or ""
+            caption = _process_links(msg.text, job.link_mode, job.link_replace_url) or ""
 
             # Progress callback for upload — uses separate db session
             ul_start_time = [time.time()]
@@ -824,7 +850,7 @@ class CloneEngine:
                 downloaded = await client.download_media(msg, file=file_path)
                 if downloaded:
                     files.append(downloaded)
-                    captions.append(msg.text or "")
+                    captions.append(_process_links(msg.text, job.link_mode, job.link_replace_url) or "")
                 else:
                     await self._save_item(db, job, msg, "error", error_msg="Download falhou")
                     await self._update_progress(db, job, "error")

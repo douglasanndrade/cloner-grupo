@@ -13,9 +13,9 @@ api_router.include_router(entities.router, dependencies=[Depends(require_auth)])
 api_router.include_router(jobs.router, dependencies=[Depends(require_auth)])
 api_router.include_router(dashboard.router, dependencies=[Depends(require_auth)])
 api_router.include_router(pix.router, dependencies=[Depends(require_auth)])
+api_router.include_router(accounts.router, dependencies=[Depends(require_auth)])
 
 # Admin-only routes
-api_router.include_router(accounts.router, dependencies=[Depends(require_admin)])
 api_router.include_router(payments.router, dependencies=[Depends(require_admin)])
 api_router.include_router(logs.router, dependencies=[Depends(require_admin)])
 api_router.include_router(settings_ep.router, dependencies=[Depends(require_admin)])

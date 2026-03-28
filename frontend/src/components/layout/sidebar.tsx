@@ -4,6 +4,7 @@ import {
   Copy,
   Plus,
   Users,
+  Phone,
   Settings,
   ScrollText,
   Coins,
@@ -27,6 +28,7 @@ const leadNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Novo Job', href: '/jobs/new', icon: Plus },
   { name: 'Jobs', href: '/jobs', icon: Copy },
+  { name: 'Contas Telegram', href: '/accounts', icon: Phone },
   { name: 'Créditos', href: '/credits', icon: Coins },
 ]
 
@@ -34,7 +36,6 @@ const HELP_URL = 'https://www.instagram.com/douglasanndrade2/'
 
 // Admin-only extras
 const adminExtras = [
-  { name: 'Contas Telegram', href: '/accounts', icon: Users },
   { name: 'Logs', href: '/logs', icon: ScrollText },
   { name: 'Configurações', href: '/settings', icon: Settings },
   { name: 'Painel Admin', href: '/admin', icon: Shield },

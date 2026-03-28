@@ -29,6 +29,8 @@ class JobOut(BaseModel):
     max_concurrency: int
     temp_directory: str
     oversized_policy: str
+    link_mode: str
+    link_replace_url: str | None
     notes: str | None
 
     model_config = {"from_attributes": True}
@@ -48,6 +50,8 @@ class CreateJobRequest(BaseModel):
     oversized_policy: str = "skip"
     date_from: str | None = None
     date_to: str | None = None
+    link_mode: str = "keep"  # keep | remove | replace
+    link_replace_url: str | None = None
     notes: str | None = None
     credit_tier: str | None = None  # basic | standard | premium — from verify
 

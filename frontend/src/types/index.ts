@@ -100,6 +100,8 @@ export interface CloneJob {
   max_concurrency: number
   temp_directory: string
   oversized_policy: OversizedPolicy
+  link_mode: 'keep' | 'remove' | 'replace'
+  link_replace_url: string | null
   notes: string | null
 }
 
@@ -117,6 +119,8 @@ export interface CreateJobRequest {
   oversized_policy: OversizedPolicy
   date_from?: string
   date_to?: string
+  link_mode?: 'keep' | 'remove' | 'replace'
+  link_replace_url?: string
   notes?: string
   credit_tier?: string
 }

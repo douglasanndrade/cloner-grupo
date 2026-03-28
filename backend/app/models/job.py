@@ -37,6 +37,10 @@ class CloneJob(Base):
     date_from: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     date_to: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Link handling: "keep" (default) | "remove" | "replace"
+    link_mode: Mapped[str] = mapped_column(String(20), default="keep")
+    link_replace_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
     # Status & Progress
     status: Mapped[str] = mapped_column(String(20), default="awaiting_payment", index=True)
     # awaiting_payment | pending | validating | running | paused | completed | failed | cancelled
