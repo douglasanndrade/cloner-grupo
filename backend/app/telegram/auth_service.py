@@ -31,7 +31,7 @@ async def start_login(phone: str) -> dict:
     }
 
 
-async def verify_code(phone: str, code: str, phone_code_hash: str, db: AsyncSession) -> dict:
+async def verify_code(phone: str, code: str, phone_code_hash: str, db: AsyncSession, *, user_id: int | None = None) -> dict:
     """
     Step 2: Verify the code sent to Telegram.
     If 2FA is enabled, returns step="2fa".
@@ -48,12 +48,12 @@ async def verify_code(phone: str, code: str, phone_code_hash: str, db: AsyncSess
         return {"step": "2fa", "account": None}
 
     # Success — save account
-    account = await _save_account(client, phone, db)
+    account = await _save_account(client, phone, db, user_id=user_id)
     promote_login_client(phone)
     return {"step": "done", "account": account}
 
 
-async def verify_2fa(phone: str, password: str, db: AsyncSession) -> dict:
+async def verify_2fa(phone: str, password: str, db: AsyncSession, *, user_id: int | None = None) -> dict:
     """
     Step 3: Verify 2FA password.
     """
@@ -64,12 +64,12 @@ async def verify_2fa(phone: str, password: str, db: AsyncSession) -> dict:
 
     await client.sign_in(password=password)
 
-    account = await _save_account(client, phone, db)
+    account = await _save_account(client, phone, db, user_id=user_id)
     promote_login_client(phone)
     return {"account": account}
 
 
-async def _save_account(client, phone: str, db: AsyncSession) -> TelegramAccount:
+async def _save_account(client, phone: str, db: AsyncSession, *, user_id: int | None = None) -> TelegramAccount:
     """
     After successful login, fetch user info and save/update in DB.
     """
@@ -105,9 +105,12 @@ async def _save_account(client, phone: str, db: AsyncSession) -> TelegramAccount
         account.is_premium = is_premium
         account.is_active = True
         account.session_file = get_session_file(phone)
+        if user_id and not account.user_id:
+            account.user_id = user_id
     else:
         account = TelegramAccount(
             phone=normalized,
+            user_id=user_id,
             username=me.username,
             first_name=me.first_name,
             last_name=me.last_name,

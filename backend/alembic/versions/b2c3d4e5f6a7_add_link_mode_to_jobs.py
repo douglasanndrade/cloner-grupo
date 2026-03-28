@@ -1,4 +1,4 @@
-"""add_link_mode_to_jobs
+"""add_link_mode_and_account_user_id
 
 Revision ID: b2c3d4e5f6a7
 Revises: a1b2c3d4e5f6
@@ -16,10 +16,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Link handling on clone jobs
     op.add_column("clone_jobs", sa.Column("link_mode", sa.String(20), server_default="keep", nullable=False))
     op.add_column("clone_jobs", sa.Column("link_replace_url", sa.String(512), nullable=True))
 
+    # User ownership on telegram accounts
+    op.add_column("telegram_accounts", sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True))
+    op.create_index("ix_telegram_accounts_user_id", "telegram_accounts", ["user_id"])
+
 
 def downgrade() -> None:
+    op.drop_index("ix_telegram_accounts_user_id", "telegram_accounts")
+    op.drop_column("telegram_accounts", "user_id")
     op.drop_column("clone_jobs", "link_replace_url")
     op.drop_column("clone_jobs", "link_mode")
