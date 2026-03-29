@@ -43,14 +43,35 @@ _URL_REGEX = re.compile(
     r'(?<!\w)t\.me/[^\s<>\"\'\)]+'      # t.me links
 )
 
+# Regex to match @mentions
+_MENTION_REGEX = re.compile(r'@[A-Za-z0-9_]{3,}')
 
-def _process_links(text: str | None, link_mode: str, link_replace_url: str | None) -> str | None:
-    """Process links in text based on job link_mode setting."""
-    if not text or link_mode == "keep":
+
+def _process_content(text: str | None, content_mode: str, link_replace_url: str | None) -> str | None:
+    """Process message text based on content_mode.
+
+    Modes:
+        media_only              → returns None (strip all text/captions)
+        media_text              → keep text, remove links AND @mentions
+        media_text_links        → keep text + links, remove @mentions
+        media_text_links_mentions → keep everything (text + links + @)
+        original                → keep everything untouched
+        replace_links           → keep text + @, replace links with custom URL
+    """
+    if content_mode == "media_only":
+        return None
+    if not text:
         return text
-    if link_mode == "remove":
-        return _URL_REGEX.sub("", text).strip()
-    if link_mode == "replace" and link_replace_url:
+    if content_mode in ("original", "media_text_links_mentions"):
+        return text
+    if content_mode == "media_text":
+        result = _URL_REGEX.sub("", text)
+        result = _MENTION_REGEX.sub("", result)
+        return re.sub(r'  +', ' ', result).strip() or None
+    if content_mode == "media_text_links":
+        result = _MENTION_REGEX.sub("", text)
+        return re.sub(r'  +', ' ', result).strip() or None
+    if content_mode == "replace_links" and link_replace_url:
         return _URL_REGEX.sub(link_replace_url, text)
     return text
 
@@ -604,14 +625,19 @@ class CloneEngine:
         # Text-only message
         if not msg.media or isinstance(msg.media, (MessageMediaWebPage, MessageMediaContact, MessageMediaGeo, MessageMediaPoll)):
             if msg.text:
+                # In media_only mode, skip text-only messages
+                if job.content_mode == "media_only":
+                    await self._save_item(db, job, msg, "skipped", error_msg="Modo só-mídia: texto ignorado")
+                    await self._update_progress(db, job, "skipped")
+                    return
                 try:
                     await log(db, "info",
                         f"[{progress}/{job.total_messages}] Enviando texto msg {msg.id}...",
                         job_id=self.job_id
                     )
-                    text = _process_links(msg.text, job.link_mode, job.link_replace_url)
+                    text = _process_content(msg.text, job.content_mode, job.link_replace_url)
                     if not text:
-                        await self._save_item(db, job, msg, "skipped", error_msg="Texto vazio após remoção de links")
+                        await self._save_item(db, job, msg, "skipped", error_msg="Texto vazio após processamento de conteúdo")
                         await self._update_progress(db, job, "skipped")
                         return
                     result = await client.send_message(dest_peer, text)
@@ -747,7 +773,7 @@ class CloneEngine:
                 f"[{progress}/{job.total_messages}] ⬆ Enviando msg {msg.id} ({file_size_mb}MB) para o destino...",
                 job_id=self.job_id
             )
-            caption = _process_links(msg.text, job.link_mode, job.link_replace_url) or ""
+            caption = _process_content(msg.text, job.content_mode, job.link_replace_url) or ""
 
             # Progress callback for upload — uses separate db session
             ul_start_time = [time.time()]
@@ -850,7 +876,7 @@ class CloneEngine:
                 downloaded = await client.download_media(msg, file=file_path)
                 if downloaded:
                     files.append(downloaded)
-                    captions.append(_process_links(msg.text, job.link_mode, job.link_replace_url) or "")
+                    captions.append(_process_content(msg.text, job.content_mode, job.link_replace_url) or "")
                 else:
                     await self._save_item(db, job, msg, "error", error_msg="Download falhou")
                     await self._update_progress(db, job, "error")

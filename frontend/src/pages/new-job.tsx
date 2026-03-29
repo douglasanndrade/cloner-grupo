@@ -12,8 +12,11 @@ import {
   Download,
   List,
   Users,
+  Image,
+  FileText,
   Link,
-  Link2Off,
+  AtSign,
+  Shield,
   Replace,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -38,7 +41,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { accountsApi, entitiesApi, jobsApi, authApi } from '@/services/api'
-import type { TelegramAccount, TelegramEntity, CloneMode } from '@/types'
+import type { TelegramAccount, TelegramEntity, CloneMode, ContentMode } from '@/types'
 import { cn } from '@/lib/utils'
 
 interface UserCredits {
@@ -83,7 +86,7 @@ export function NewJobPage() {
   const [maxConcurrency, setMaxConcurrency] = useState(searchParams.get('concurrency') || '1')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [linkMode, setLinkMode] = useState<'keep' | 'remove' | 'replace'>('keep')
+  const [contentMode, setContentMode] = useState<ContentMode>('original')
   const [linkReplaceUrl, setLinkReplaceUrl] = useState('')
   const [notes, setNotes] = useState(isContinuation ? `Continuação - a partir da msg #${prefillFromMsg}` : '')
 
@@ -254,8 +257,8 @@ export function NewJobPage() {
         oversized_policy: 'skip',
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
-        link_mode: linkMode,
-        link_replace_url: linkMode === 'replace' ? linkReplaceUrl : undefined,
+        content_mode: contentMode,
+        link_replace_url: contentMode === 'replace_links' ? linkReplaceUrl : undefined,
         notes: notes || undefined,
         credit_tier: verifyResult.credit_tier,
       })
@@ -677,49 +680,36 @@ export function NewJobPage() {
           <Separator />
 
           <div>
-            <Label className="mb-3 block">Links nas Mensagens</Label>
+            <Label className="mb-3 block">Modo de Conteúdo</Label>
+            <p className="text-xs text-muted-foreground mb-3">
+              Escolha o que será copiado das mensagens
+            </p>
             <div className="grid gap-3 md:grid-cols-3">
-              <div
-                onClick={() => setLinkMode('keep')}
-                className={cn(
-                  'cursor-pointer rounded-lg border-2 p-3 transition-all text-center',
-                  linkMode === 'keep'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-border-hover'
-                )}
-              >
-                <Link className="h-5 w-5 mx-auto mb-1 text-primary" />
-                <p className="text-sm font-medium text-foreground">Manter</p>
-                <p className="text-xs text-muted-foreground">Links originais</p>
-              </div>
-              <div
-                onClick={() => setLinkMode('remove')}
-                className={cn(
-                  'cursor-pointer rounded-lg border-2 p-3 transition-all text-center',
-                  linkMode === 'remove'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-border-hover'
-                )}
-              >
-                <Link2Off className="h-5 w-5 mx-auto mb-1 text-error" />
-                <p className="text-sm font-medium text-foreground">Remover</p>
-                <p className="text-xs text-muted-foreground">Remove todos os links</p>
-              </div>
-              <div
-                onClick={() => setLinkMode('replace')}
-                className={cn(
-                  'cursor-pointer rounded-lg border-2 p-3 transition-all text-center',
-                  linkMode === 'replace'
-                    ? 'border-primary bg-primary/5'
-                    : 'border-border hover:border-border-hover'
-                )}
-              >
-                <Replace className="h-5 w-5 mx-auto mb-1 text-warning" />
-                <p className="text-sm font-medium text-foreground">Substituir</p>
-                <p className="text-xs text-muted-foreground">Troca por outro link</p>
-              </div>
+              {([
+                { value: 'media_only' as ContentMode, icon: Image, label: 'Só Mídia', desc: 'Sem legendas/texto', color: 'text-orange-400' },
+                { value: 'media_text' as ContentMode, icon: FileText, label: 'Mídia + Texto', desc: 'Remove links e @', color: 'text-blue-400' },
+                { value: 'media_text_links' as ContentMode, icon: Link, label: 'Mídia + Texto + Links', desc: 'Remove apenas @', color: 'text-cyan-400' },
+                { value: 'media_text_links_mentions' as ContentMode, icon: AtSign, label: 'Mídia + Texto + Links + @', desc: 'Copia tudo', color: 'text-green-400' },
+                { value: 'original' as ContentMode, icon: Shield, label: 'Original', desc: 'Tudo preservado, sem alterações', color: 'text-primary' },
+                { value: 'replace_links' as ContentMode, icon: Replace, label: 'Links Alteráveis', desc: 'Substitui links por outro', color: 'text-warning' },
+              ]).map((opt) => (
+                <div
+                  key={opt.value}
+                  onClick={() => setContentMode(opt.value)}
+                  className={cn(
+                    'cursor-pointer rounded-lg border-2 p-3 transition-all text-center',
+                    contentMode === opt.value
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:border-border-hover'
+                  )}
+                >
+                  <opt.icon className={cn('h-5 w-5 mx-auto mb-1', opt.color)} />
+                  <p className="text-sm font-medium text-foreground">{opt.label}</p>
+                  <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                </div>
+              ))}
             </div>
-            {linkMode === 'replace' && (
+            {contentMode === 'replace_links' && (
               <div className="mt-3 space-y-2">
                 <Label htmlFor="linkReplaceUrl">Link de substituição</Label>
                 <Input
@@ -733,12 +723,12 @@ export function NewJobPage() {
                 </p>
               </div>
             )}
-            {linkMode !== 'keep' && mode === 'forward' && (
+            {contentMode !== 'original' && mode === 'forward' && (
               <div className="mt-3 flex items-start gap-2 rounded-lg bg-warning/5 border border-warning/20 p-3 text-xs text-warning">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                 <span>
-                  No modo <b>Forward</b>, links não podem ser modificados pois a mensagem é encaminhada como está.
-                  Use o modo <b>Download + Reupload</b> para alterar links.
+                  No modo <b>Forward</b>, o conteúdo não pode ser modificado pois a mensagem é encaminhada como está.
+                  Use o modo <b>Download + Reupload</b> para alterar o conteúdo.
                 </span>
               </div>
             )}
