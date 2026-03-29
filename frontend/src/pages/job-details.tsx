@@ -42,7 +42,7 @@ const emptyJob: CloneJob = {
   incompatible_count: 0, started_at: null, finished_at: null,
   created_at: '', updated_at: '',
   send_interval_ms: 1000, max_concurrency: 1, temp_directory: '/tmp/cloner',
-  oversized_policy: 'skip', content_mode: 'original', link_replace_url: null, notes: null,
+  oversized_policy: 'skip', content_mode: 'original', link_replace_url: null, mention_replace_text: null, notes: null,
 }
 
 export function JobDetailsPage() {

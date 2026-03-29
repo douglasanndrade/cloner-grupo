@@ -88,6 +88,7 @@ export function NewJobPage() {
   const [dateTo, setDateTo] = useState('')
   const [contentMode, setContentMode] = useState<ContentMode>('original')
   const [linkReplaceUrl, setLinkReplaceUrl] = useState('')
+  const [mentionReplaceText, setMentionReplaceText] = useState('')
   const [notes, setNotes] = useState(isContinuation ? `Continuação - a partir da msg #${prefillFromMsg}` : '')
 
   // Resolved entities
@@ -258,7 +259,8 @@ export function NewJobPage() {
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         content_mode: contentMode,
-        link_replace_url: contentMode === 'replace_links' ? linkReplaceUrl : undefined,
+        link_replace_url: contentMode === 'replace_links_mentions' ? linkReplaceUrl : undefined,
+        mention_replace_text: contentMode === 'replace_links_mentions' ? mentionReplaceText : undefined,
         notes: notes || undefined,
         credit_tier: verifyResult.credit_tier,
       })
@@ -691,7 +693,7 @@ export function NewJobPage() {
                 { value: 'media_text_links' as ContentMode, icon: Link, label: 'Mídia + Texto + Links', desc: 'Remove apenas @', color: 'text-cyan-400' },
                 { value: 'media_text_links_mentions' as ContentMode, icon: AtSign, label: 'Mídia + Texto + Links + @', desc: 'Copia tudo', color: 'text-green-400' },
                 { value: 'original' as ContentMode, icon: Shield, label: 'Original', desc: 'Tudo preservado, sem alterações', color: 'text-primary' },
-                { value: 'replace_links' as ContentMode, icon: Replace, label: 'Links Alteráveis', desc: 'Substitui links por outro', color: 'text-warning' },
+                { value: 'replace_links_mentions' as ContentMode, icon: Replace, label: 'Links e @ Alteráveis', desc: 'Substitui links e @ por outros', color: 'text-warning' },
               ]).map((opt) => (
                 <div
                   key={opt.value}
@@ -709,18 +711,32 @@ export function NewJobPage() {
                 </div>
               ))}
             </div>
-            {contentMode === 'replace_links' && (
-              <div className="mt-3 space-y-2">
-                <Label htmlFor="linkReplaceUrl">Link de substituição</Label>
-                <Input
-                  id="linkReplaceUrl"
-                  placeholder="https://t.me/seucanal"
-                  value={linkReplaceUrl}
-                  onChange={(e) => setLinkReplaceUrl(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Todos os links encontrados nas mensagens serão substituídos por este link
-                </p>
+            {contentMode === 'replace_links_mentions' && (
+              <div className="mt-3 space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="linkReplaceUrl">Link de substituição</Label>
+                  <Input
+                    id="linkReplaceUrl"
+                    placeholder="https://t.me/seucanal"
+                    value={linkReplaceUrl}
+                    onChange={(e) => setLinkReplaceUrl(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Todos os links serão substituídos por este link (deixe vazio para manter os originais)
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="mentionReplace">@ de substituição</Label>
+                  <Input
+                    id="mentionReplace"
+                    placeholder="@seucanal"
+                    value={mentionReplaceText}
+                    onChange={(e) => setMentionReplaceText(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Todas as @menções serão substituídas por este @ (deixe vazio para manter as originais)
+                  </p>
+                </div>
               </div>
             )}
             {contentMode !== 'original' && mode === 'forward' && (

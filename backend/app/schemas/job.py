@@ -31,6 +31,7 @@ class JobOut(BaseModel):
     oversized_policy: str
     content_mode: str
     link_replace_url: str | None
+    mention_replace_text: str | None
     notes: str | None
 
     model_config = {"from_attributes": True}
@@ -50,8 +51,9 @@ class CreateJobRequest(BaseModel):
     oversized_policy: str = "skip"
     date_from: str | None = None
     date_to: str | None = None
-    content_mode: str = "original"  # media_only | media_text | media_text_links | media_text_links_mentions | original | replace_links
+    content_mode: str = "original"  # media_only | media_text | media_text_links | media_text_links_mentions | original | replace_links_mentions
     link_replace_url: str | None = None
+    mention_replace_text: str | None = None
     notes: str | None = None
     credit_tier: str | None = None  # basic | standard | premium — from verify
 

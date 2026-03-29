@@ -38,9 +38,10 @@ class CloneJob(Base):
     date_to: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Content mode: controls what gets copied
-    # media_only | media_text | media_text_links | media_text_links_mentions | original | replace_links
+    # media_only | media_text | media_text_links | media_text_links_mentions | original | replace_links_mentions
     content_mode: Mapped[str] = mapped_column(String(30), default="original")
     link_replace_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    mention_replace_text: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # Status & Progress
     status: Mapped[str] = mapped_column(String(20), default="awaiting_payment", index=True)

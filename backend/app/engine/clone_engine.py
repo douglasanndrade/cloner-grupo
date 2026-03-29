@@ -22,7 +22,9 @@ from telethon.tl.types import (
     DocumentAttributeFilename,
     DocumentAttributeAudio,
     DocumentAttributeVideo,
+    Channel,
 )
+from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTopicRequest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,16 +49,16 @@ _URL_REGEX = re.compile(
 _MENTION_REGEX = re.compile(r'@[A-Za-z0-9_]{3,}')
 
 
-def _process_content(text: str | None, content_mode: str, link_replace_url: str | None) -> str | None:
+def _process_content(text: str | None, content_mode: str, link_replace_url: str | None, mention_replace_text: str | None = None) -> str | None:
     """Process message text based on content_mode.
 
     Modes:
-        media_only              → returns None (strip all text/captions)
-        media_text              → keep text, remove links AND @mentions
-        media_text_links        → keep text + links, remove @mentions
+        media_only                → returns None (strip all text/captions)
+        media_text                → keep text, remove links AND @mentions
+        media_text_links          → keep text + links, remove @mentions
         media_text_links_mentions → keep everything (text + links + @)
-        original                → keep everything untouched
-        replace_links           → keep text + @, replace links with custom URL
+        original                  → keep everything untouched
+        replace_links_mentions    → replace links with custom URL + replace @mentions with custom @
     """
     if content_mode == "media_only":
         return None
@@ -71,8 +73,14 @@ def _process_content(text: str | None, content_mode: str, link_replace_url: str 
     if content_mode == "media_text_links":
         result = _MENTION_REGEX.sub("", text)
         return re.sub(r'  +', ' ', result).strip() or None
-    if content_mode == "replace_links" and link_replace_url:
-        return _URL_REGEX.sub(link_replace_url, text)
+    if content_mode == "replace_links_mentions":
+        result = text
+        if link_replace_url:
+            result = _URL_REGEX.sub(link_replace_url, result)
+        if mention_replace_text:
+            replace_val = mention_replace_text if mention_replace_text.startswith("@") else f"@{mention_replace_text}"
+            result = _MENTION_REGEX.sub(replace_val, result)
+        return result
     return text
 
 
@@ -267,8 +275,12 @@ class CloneEngine:
                     job_id=self.job_id
                 )
 
-                # Count and iterate messages
-                if job.mode == "forward":
+                # Check if source is a forum (has topics)
+                is_forum = isinstance(source_peer, Channel) and getattr(source_peer, "forum", False)
+
+                if is_forum:
+                    await self._run_forum(client, job, source_peer, dest_peer, size_limit, db)
+                elif job.mode == "forward":
                     await self._run_forward(client, job, source_peer, dest_peer, size_limit, db)
                 else:
                     await self._run_reupload(client, job, source_peer, dest_peer, size_limit, db)
@@ -363,16 +375,19 @@ class CloneEngine:
         except Exception:
             logger.warning(f"Failed to log progress: {message}")
 
-    async def _collect_messages(self, client, source_peer, job, db):
+    async def _collect_messages(self, client, source_peer, job, db, reply_to=None, label=None):
         """Collect all messages from source, respecting date filters and resume point."""
-        await log(db, "info", "Coletando mensagens da origem...", job_id=self.job_id)
+        tag = f" [{label}]" if label else ""
+        await log(db, "info", f"Coletando mensagens da origem{tag}...", job_id=self.job_id)
 
         messages = []
         kwargs = {}
         if job.date_from:
             kwargs["offset_date"] = job.date_from
-        if job.last_message_id:
+        if job.last_message_id and not reply_to:
             kwargs["min_id"] = job.last_message_id
+        if reply_to is not None:
+            kwargs["reply_to"] = reply_to
 
         count = 0
         async for msg in client.iter_messages(source_peer, reverse=True, **kwargs):
@@ -382,18 +397,358 @@ class CloneEngine:
                 continue
             messages.append(msg)
             count += 1
-            # Log progress every 500 messages during collection
             if count % 500 == 0:
-                await log(db, "info", f"Coletando... {count} mensagens até agora", job_id=self.job_id)
+                await log(db, "info", f"Coletando{tag}... {count} mensagens até agora", job_id=self.job_id)
 
-        await log(db, "info", f"{len(messages)} mensagens encontradas para processar", job_id=self.job_id)
-
-        # Update job total
-        await db.refresh(job)
-        job.total_messages = len(messages)
-        await db.commit()
-
+        await log(db, "info", f"{len(messages)} mensagens encontradas{tag}", job_id=self.job_id)
         return messages
+
+    # ========================
+    # FORUM / TOPICS MODE
+    # ========================
+
+    async def _list_topics(self, client, peer):
+        """List all forum topics from a group."""
+        topics = []
+        offset_date = None
+        offset_id = 0
+        offset_topic = 0
+
+        while True:
+            result = await client(GetForumTopicsRequest(
+                peer=peer,
+                offset_date=offset_date,
+                offset_id=offset_id,
+                offset_topic=offset_topic,
+                limit=100,
+            ))
+            for t in result.topics:
+                if hasattr(t, "id") and hasattr(t, "title"):
+                    topics.append(t)
+
+            if len(result.topics) < 100:
+                break
+            last = result.topics[-1]
+            offset_date = getattr(last, "date", None)
+            offset_id = getattr(last, "top_message", 0)
+            offset_topic = getattr(last, "id", 0)
+
+        return topics
+
+    async def _create_topic(self, client, peer, title, icon_color=None, icon_emoji_id=None):
+        """Create a forum topic in the destination and return its ID."""
+        kwargs = {"peer": peer, "title": title}
+        if icon_color is not None:
+            kwargs["icon_color"] = icon_color
+        if icon_emoji_id is not None:
+            kwargs["icon_emoji_id"] = icon_emoji_id
+        result = await client(CreateForumTopicRequest(**kwargs))
+        # The new topic ID is in the updates
+        for update in result.updates:
+            if hasattr(update, "message") and hasattr(update.message, "id"):
+                reply_header = getattr(update.message, "reply_to", None)
+                if reply_header and hasattr(reply_header, "reply_to_top_id"):
+                    return reply_header.reply_to_top_id
+                return update.message.id
+        return None
+
+    async def _run_forum(self, client, job, source_peer, dest_peer, size_limit, db):
+        """Clone a forum group topic by topic."""
+        await log(db, "info", "Grupo de origem é um fórum. Listando tópicos...", job_id=self.job_id)
+
+        source_topics = await self._list_topics(client, source_peer)
+        if not source_topics:
+            await log(db, "warning", "Nenhum tópico encontrado no fórum", job_id=self.job_id)
+            return
+
+        await log(db, "info", f"{len(source_topics)} tópicos encontrados", job_id=self.job_id)
+
+        # Check if dest is also a forum
+        dest_is_forum = isinstance(dest_peer, Channel) and getattr(dest_peer, "forum", False)
+        if not dest_is_forum:
+            await log(db, "warning",
+                "O destino não é um fórum. As mensagens serão clonadas sem separação por tópico.",
+                job_id=self.job_id
+            )
+
+        # Collect ALL messages first to get total count
+        total = 0
+        topic_messages = {}
+        for topic in source_topics:
+            topic_id = topic.id
+            title = topic.title
+            msgs = await self._collect_messages(client, source_peer, job, db,
+                reply_to=topic_id, label=title)
+            topic_messages[topic_id] = msgs
+            total += len(msgs)
+
+        # Also collect messages from "General" (topic_id=1 is General)
+        general_msgs = await self._collect_messages(client, source_peer, job, db,
+            reply_to=1, label="General")
+        # Avoid duplicating General if it's already in topics
+        general_ids = {1}
+        topic_ids_set = {t.id for t in source_topics}
+        if 1 not in topic_ids_set and general_msgs:
+            topic_messages[1] = general_msgs
+            total += len(general_msgs)
+
+        await db.refresh(job)
+        job.total_messages = total
+        await db.commit()
+        await log(db, "info", f"Total: {total} mensagens em {len(topic_messages)} tópicos", job_id=self.job_id)
+
+        # Clone each topic
+        for topic in source_topics:
+            if not await self._check_state(job, db):
+                return
+
+            topic_id = topic.id
+            title = topic.title
+            messages = topic_messages.get(topic_id, [])
+            if not messages:
+                await log(db, "info", f"Tópico '{title}' vazio, pulando", job_id=self.job_id)
+                continue
+
+            # Create topic in dest (if dest is forum)
+            dest_topic_id = None
+            if dest_is_forum and topic_id != 1:
+                try:
+                    icon_color = getattr(topic, "icon_color", None)
+                    icon_emoji_id = getattr(topic, "icon_emoji_id", None)
+                    dest_topic_id = await self._create_topic(client, dest_peer, title,
+                        icon_color=icon_color, icon_emoji_id=icon_emoji_id)
+                    await log(db, "info",
+                        f"Tópico '{title}' criado no destino (ID: {dest_topic_id})",
+                        job_id=self.job_id
+                    )
+                except Exception as e:
+                    await log(db, "warning",
+                        f"Erro ao criar tópico '{title}': {str(e)}. Enviando no General.",
+                        job_id=self.job_id
+                    )
+
+            await log(db, "info",
+                f"Clonando tópico '{title}' ({len(messages)} msgs)...",
+                job_id=self.job_id
+            )
+
+            if job.mode == "forward":
+                await self._run_forward_topic(client, job, messages, dest_peer, dest_topic_id, db)
+            else:
+                await self._run_reupload_topic(client, job, messages, dest_peer, dest_topic_id, size_limit, db)
+
+        # Handle General if it's separate
+        if 1 in topic_messages and 1 not in topic_ids_set:
+            messages = topic_messages[1]
+            if messages:
+                await log(db, "info",
+                    f"Clonando tópico 'General' ({len(messages)} msgs)...",
+                    job_id=self.job_id
+                )
+                if job.mode == "forward":
+                    await self._run_forward_topic(client, job, messages, dest_peer, None, db)
+                else:
+                    await self._run_reupload_topic(client, job, messages, dest_peer, None, size_limit, db)
+
+    async def _run_forward_topic(self, client, job, messages, dest_peer, dest_topic_id, db):
+        """Forward messages for a specific topic."""
+        i = 0
+        while i < len(messages):
+            if not await self._check_state(job, db):
+                return
+            msg = messages[i]
+            try:
+                # Collect album group
+                if msg.grouped_id:
+                    album = [msg]
+                    while i + 1 < len(messages) and messages[i + 1].grouped_id == msg.grouped_id:
+                        i += 1
+                        album.append(messages[i])
+                    # Forward album to topic
+                    await self._forward_album(client, job, album, dest_peer, db)
+                else:
+                    await self._forward_single(client, job, msg, dest_peer, db)
+            except Exception as e:
+                if _is_connection_error(e):
+                    raise
+                raise
+
+            await db.refresh(job)
+            job.last_message_id = msg.id
+            await db.commit()
+            await asyncio.sleep(job.send_interval_ms / 1000)
+            i += 1
+
+    async def _run_reupload_topic(self, client, job, messages, dest_peer, dest_topic_id, size_limit, db):
+        """Reupload messages for a specific topic."""
+        temp_dir = os.path.join(settings.temp_dir, f"job_{job.id}")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        i = 0
+        while i < len(messages):
+            if not await self._check_state(job, db):
+                return
+            msg = messages[i]
+            try:
+                if msg.grouped_id:
+                    album = [msg]
+                    while i + 1 < len(messages) and messages[i + 1].grouped_id == msg.grouped_id:
+                        i += 1
+                        album.append(messages[i])
+                    await self._reupload_album_topic(client, job, album, dest_peer, dest_topic_id, size_limit, temp_dir, db)
+                else:
+                    await self._reupload_single_topic(client, job, msg, dest_peer, dest_topic_id, size_limit, temp_dir, db)
+            except Exception as e:
+                if _is_connection_error(e):
+                    raise
+                raise
+
+            await db.refresh(job)
+            job.last_message_id = msg.id
+            await db.commit()
+            await asyncio.sleep(job.send_interval_ms / 1000)
+            i += 1
+
+    async def _reupload_single_topic(self, client, job, msg, dest_peer, dest_topic_id, size_limit, temp_dir, db):
+        """Reupload a single message to a specific topic."""
+        media_type = _get_media_type(msg)
+        media_size = _get_media_size(msg)
+        progress = job.processed_count + job.error_count + job.skipped_count + job.incompatible_count + 1
+        reply_to = dest_topic_id
+
+        # Text-only
+        if not msg.media or isinstance(msg.media, (MessageMediaWebPage, MessageMediaContact, MessageMediaGeo, MessageMediaPoll)):
+            if msg.text:
+                if job.content_mode == "media_only":
+                    await self._save_item(db, job, msg, "skipped", error_msg="Modo só-mídia: texto ignorado")
+                    await self._update_progress(db, job, "skipped")
+                    return
+                try:
+                    text = _process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text)
+                    if not text:
+                        await self._save_item(db, job, msg, "skipped", error_msg="Texto vazio após processamento")
+                        await self._update_progress(db, job, "skipped")
+                        return
+                    result = await client.send_message(dest_peer, text, reply_to=reply_to)
+                    await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
+                    await self._update_progress(db, job, "success")
+                except Exception as e:
+                    if _is_connection_error(e):
+                        raise
+                    await self._save_item(db, job, msg, "error", error_msg=str(e))
+                    await self._update_progress(db, job, "error")
+            else:
+                await self._save_item(db, job, msg, "incompatible", error_msg=f"Tipo {media_type} não suportado")
+                await self._update_progress(db, job, "incompatible")
+            return
+
+        # Check size
+        if media_size and media_size > size_limit:
+            if job.oversized_policy == "skip":
+                await self._save_item(db, job, msg, "skipped", error_msg=f"Excede limite ({media_size // (1024**2)}MB)")
+                await self._update_progress(db, job, "skipped")
+                return
+            elif job.oversized_policy == "fail":
+                raise ValueError(f"Arquivo de {media_size // (1024**2)}MB excede o limite")
+
+        # Download + Upload
+        try:
+            file_path = os.path.join(temp_dir, f"msg_{msg.id}")
+            downloaded = await client.download_media(msg, file=file_path)
+            if not downloaded:
+                await self._save_item(db, job, msg, "error", error_msg="Download falhou")
+                await self._update_progress(db, job, "error")
+                return
+
+            caption = _process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text) or ""
+            result = await client.send_file(
+                dest_peer, downloaded, caption=caption,
+                reply_to=reply_to, force_document=media_type == "document",
+            )
+            await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
+            await self._update_progress(db, job, "success")
+            await log(db, "success",
+                f"[{progress}/{job.total_messages}] Msg {msg.id} enviada",
+                job_id=self.job_id
+            )
+        except Exception as e:
+            if _is_connection_error(e):
+                raise
+            await self._save_item(db, job, msg, "error", error_msg=str(e))
+            await self._update_progress(db, job, "error")
+        finally:
+            if 'downloaded' in locals() and downloaded and os.path.exists(downloaded):
+                try:
+                    os.remove(downloaded)
+                except OSError:
+                    pass
+
+    async def _reupload_album_topic(self, client, job, album, dest_peer, dest_topic_id, size_limit, temp_dir, db):
+        """Reupload an album to a specific topic."""
+        progress = job.processed_count + job.error_count + job.skipped_count + job.incompatible_count + 1
+        reply_to = dest_topic_id
+
+        files = []
+        captions = []
+        skipped_msgs = []
+
+        for msg in album:
+            media_size = _get_media_size(msg)
+            if media_size and media_size > size_limit:
+                if job.oversized_policy == "skip":
+                    await self._save_item(db, job, msg, "skipped", error_msg=f"Excede limite ({media_size // (1024**2)}MB)")
+                    await self._update_progress(db, job, "skipped")
+                    skipped_msgs.append(msg)
+                    continue
+
+            try:
+                file_path = os.path.join(temp_dir, f"msg_{msg.id}")
+                downloaded = await client.download_media(msg, file=file_path)
+                if downloaded:
+                    files.append(downloaded)
+                    captions.append(_process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text) or "")
+                else:
+                    await self._save_item(db, job, msg, "error", error_msg="Download falhou")
+                    await self._update_progress(db, job, "error")
+                    skipped_msgs.append(msg)
+            except Exception as e:
+                if _is_connection_error(e):
+                    raise
+                await self._save_item(db, job, msg, "error", error_msg=str(e))
+                await self._update_progress(db, job, "error")
+                skipped_msgs.append(msg)
+
+        if not files:
+            return
+
+        try:
+            results = await client.send_file(
+                dest_peer, files, caption=captions[0] if captions else "",
+                reply_to=reply_to,
+            )
+            success_msgs = [m for m in album if m not in skipped_msgs]
+            if not isinstance(results, list):
+                results = [results]
+            for msg_item, result in zip(success_msgs, results):
+                dest_id = result.id if result else None
+                await self._save_item(db, job, msg_item, "success", dest_msg_id=dest_id)
+                await self._update_progress(db, job, "success")
+            for msg_item in success_msgs[len(results):]:
+                await self._save_item(db, job, msg_item, "success")
+                await self._update_progress(db, job, "success")
+        except Exception as e:
+            if _is_connection_error(e):
+                raise
+            for msg_item in [m for m in album if m not in skipped_msgs]:
+                await self._save_item(db, job, msg_item, "error", error_msg=str(e))
+                await self._update_progress(db, job, "error")
+        finally:
+            for f in files:
+                if os.path.exists(f):
+                    try:
+                        os.remove(f)
+                    except OSError:
+                        pass
 
     async def _save_item(self, db, job, msg, status, error_msg=None, dest_msg_id=None):
         """Save or update a job item."""
@@ -455,6 +810,10 @@ class CloneEngine:
         if not messages:
             await log(db, "warning", "Nenhuma mensagem encontrada para processar", job_id=self.job_id)
             return
+
+        await db.refresh(job)
+        job.total_messages = len(messages)
+        await db.commit()
 
         await log(db, "info",
             f"Iniciando encaminhamento de {len(messages)} mensagens...",
@@ -554,6 +913,10 @@ class CloneEngine:
             await log(db, "warning", "Nenhuma mensagem encontrada para processar", job_id=self.job_id)
             return
 
+        await db.refresh(job)
+        job.total_messages = len(messages)
+        await db.commit()
+
         temp_dir = os.path.join(settings.temp_dir, f"job_{job.id}")
         os.makedirs(temp_dir, exist_ok=True)
 
@@ -635,7 +998,7 @@ class CloneEngine:
                         f"[{progress}/{job.total_messages}] Enviando texto msg {msg.id}...",
                         job_id=self.job_id
                     )
-                    text = _process_content(msg.text, job.content_mode, job.link_replace_url)
+                    text = _process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text)
                     if not text:
                         await self._save_item(db, job, msg, "skipped", error_msg="Texto vazio após processamento de conteúdo")
                         await self._update_progress(db, job, "skipped")
@@ -773,7 +1136,7 @@ class CloneEngine:
                 f"[{progress}/{job.total_messages}] ⬆ Enviando msg {msg.id} ({file_size_mb}MB) para o destino...",
                 job_id=self.job_id
             )
-            caption = _process_content(msg.text, job.content_mode, job.link_replace_url) or ""
+            caption = _process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text) or ""
 
             # Progress callback for upload — uses separate db session
             ul_start_time = [time.time()]
@@ -876,7 +1239,7 @@ class CloneEngine:
                 downloaded = await client.download_media(msg, file=file_path)
                 if downloaded:
                     files.append(downloaded)
-                    captions.append(_process_content(msg.text, job.content_mode, job.link_replace_url) or "")
+                    captions.append(_process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text) or "")
                 else:
                     await self._save_item(db, job, msg, "error", error_msg="Download falhou")
                     await self._update_progress(db, job, "error")

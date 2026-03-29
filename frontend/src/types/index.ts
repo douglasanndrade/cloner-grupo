@@ -59,7 +59,7 @@ export interface ResolveEntityRequest {
 
 export type CloneMode = 'forward' | 'reupload'
 
-export type ContentMode = 'media_only' | 'media_text' | 'media_text_links' | 'media_text_links_mentions' | 'original' | 'replace_links'
+export type ContentMode = 'media_only' | 'media_text' | 'media_text_links' | 'media_text_links_mentions' | 'original' | 'replace_links_mentions'
 
 export type JobStatus =
   | 'awaiting_payment'
@@ -104,6 +104,7 @@ export interface CloneJob {
   oversized_policy: OversizedPolicy
   content_mode: ContentMode
   link_replace_url: string | null
+  mention_replace_text: string | null
   notes: string | null
 }
 
@@ -123,6 +124,7 @@ export interface CreateJobRequest {
   date_to?: string
   content_mode?: ContentMode
   link_replace_url?: string
+  mention_replace_text?: string
   notes?: string
   credit_tier?: string
 }

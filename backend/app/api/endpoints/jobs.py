@@ -167,7 +167,8 @@ async def create_job(
         date_from=date_from,
         date_to=date_to,
         content_mode=req.content_mode,
-        link_replace_url=req.link_replace_url if req.content_mode == "replace_links" else None,
+        link_replace_url=req.link_replace_url if req.content_mode == "replace_links_mentions" else None,
+        mention_replace_text=req.mention_replace_text if req.content_mode == "replace_links_mentions" else None,
         notes=req.notes,
         status="pending",
     )
