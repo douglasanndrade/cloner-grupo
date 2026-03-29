@@ -752,6 +752,34 @@ export function NewJobPage() {
 
           <Separator />
 
+          {/* Forum / Topics info */}
+          <div className="rounded-lg bg-info/5 border border-info/20 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Info className="h-4 w-4 text-info shrink-0" />
+              <p className="text-sm font-medium text-info">Grupos com Tópicos (Fórum)</p>
+            </div>
+            <div className="text-xs text-muted-foreground space-y-2">
+              <p>
+                Se o grupo de origem tiver <b>tópicos/categorias</b> (modo fórum), o cloner detecta automaticamente
+                e clona cada tópico separadamente, mantendo a organização.
+              </p>
+              <p>
+                Para que os tópicos sejam recriados no destino, o grupo de destino <b>precisa ter o modo fórum ativado</b>:
+              </p>
+              <div className="rounded bg-background/80 px-3 py-2 space-y-1">
+                <p><b>1.</b> Abra o grupo de destino no Telegram</p>
+                <p><b>2.</b> Vá em <span className="text-foreground font-medium">Configurações do grupo</span> (clique no nome do grupo)</p>
+                <p><b>3.</b> Ative a opção <span className="text-foreground font-medium">"Tópicos"</span> ou <span className="text-foreground font-medium">"Topics"</span></p>
+                <p><b>4.</b> Salve as configurações</p>
+              </div>
+              <p className="text-muted-foreground/70">
+                Se o destino não tiver tópicos ativados, as mensagens serão clonadas normalmente sem separação.
+              </p>
+            </div>
+          </div>
+
+          <Separator />
+
           <div className="space-y-2">
             <Label htmlFor="notes">Observações (opcional)</Label>
             <Input
