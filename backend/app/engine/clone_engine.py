@@ -24,7 +24,7 @@ from telethon.tl.types import (
     DocumentAttributeVideo,
     Channel,
 )
-from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTopicRequest
+from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTopicRequest, ForwardMessagesRequest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,7 @@ from app.services.log_service import log
 from app.core.config import settings
 
 import re
+import random
 
 logger = logging.getLogger("cloner.engine")
 
@@ -155,6 +156,35 @@ def _get_media_size(message) -> int | None:
         if doc:
             return doc.size
     return None
+
+
+def _get_send_kwargs(message):
+    """Extract original media attributes for preserving quality on reupload.
+
+    Returns dict of kwargs to pass to client.send_file() to preserve
+    resolution, video streaming, thumbnails, etc.
+    """
+    kwargs = {}
+    media = message.media
+    if not isinstance(media, MessageMediaDocument) or not media.document:
+        return kwargs
+
+    doc = media.document
+    # Preserve all original document attributes (filename, video dims, audio info, etc.)
+    if doc.attributes:
+        kwargs["attributes"] = doc.attributes
+
+    # Enable streaming for videos
+    for attr in (doc.attributes or []):
+        if isinstance(attr, DocumentAttributeVideo):
+            kwargs["supports_streaming"] = True
+            break
+
+    # Preserve thumbnail — Telethon can accept the raw thumb bytes
+    if doc.thumbs:
+        kwargs["thumb"] = None  # Will be set during download if possible
+
+    return kwargs
 
 
 class CloneEngine:
@@ -565,9 +595,9 @@ class CloneEngine:
                         i += 1
                         album.append(messages[i])
                     # Forward album to topic
-                    await self._forward_album(client, job, album, dest_peer, db)
+                    await self._forward_album(client, job, album, dest_peer, db, dest_topic_id=dest_topic_id)
                 else:
-                    await self._forward_single(client, job, msg, dest_peer, db)
+                    await self._forward_single(client, job, msg, dest_peer, db, dest_topic_id=dest_topic_id)
             except Exception as e:
                 if _is_connection_error(e):
                     raise
@@ -652,6 +682,7 @@ class CloneEngine:
                 raise ValueError(f"Arquivo de {media_size // (1024**2)}MB excede o limite")
 
         # Download + Upload
+        thumb_path = None
         try:
             file_path = os.path.join(temp_dir, f"msg_{msg.id}")
             downloaded = await client.download_media(msg, file=file_path)
@@ -660,10 +691,27 @@ class CloneEngine:
                 await self._update_progress(db, job, "error")
                 return
 
+            # Preserve original media attributes (resolution, streaming, etc.)
+            send_kwargs = _get_send_kwargs(msg)
+
+            # Download thumbnail for videos to avoid black preview
+            if media_type in ("video", "video_note") and isinstance(msg.media, MessageMediaDocument):
+                try:
+                    thumb_path = os.path.join(temp_dir, f"thumb_{msg.id}.jpg")
+                    thumb_dl = await client.download_media(msg, file=thumb_path, thumb=-1)
+                    if thumb_dl and os.path.exists(thumb_dl):
+                        send_kwargs["thumb"] = thumb_dl
+                        thumb_path = thumb_dl
+                    else:
+                        thumb_path = None
+                except Exception:
+                    thumb_path = None
+
             caption = _process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text) or ""
             result = await client.send_file(
                 dest_peer, downloaded, caption=caption,
                 reply_to=reply_to, force_document=media_type == "document",
+                **send_kwargs,
             )
             await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
             await self._update_progress(db, job, "success")
@@ -680,6 +728,11 @@ class CloneEngine:
             if 'downloaded' in locals() and downloaded and os.path.exists(downloaded):
                 try:
                     os.remove(downloaded)
+                except OSError:
+                    pass
+            if thumb_path and os.path.exists(thumb_path):
+                try:
+                    os.remove(thumb_path)
                 except OSError:
                     pass
 
@@ -722,9 +775,16 @@ class CloneEngine:
             return
 
         try:
+            # Check if album contains videos for streaming support
+            has_video = any(
+                _get_media_type(m) in ("video", "video_note")
+                for m in album if m not in skipped_msgs
+            )
+
             results = await client.send_file(
                 dest_peer, files, caption=captions[0] if captions else "",
                 reply_to=reply_to,
+                supports_streaming=has_video,
             )
             success_msgs = [m for m in album if m not in skipped_msgs]
             if not isinstance(results, list):
@@ -865,7 +925,7 @@ class CloneEngine:
             await asyncio.sleep(job.send_interval_ms / 1000)
             i += 1
 
-    async def _forward_single(self, client, job, msg, dest_peer, db):
+    async def _forward_single(self, client, job, msg, dest_peer, db, dest_topic_id=None):
         """Forward a single message."""
         progress = job.processed_count + job.error_count + job.skipped_count + job.incompatible_count + 1
         media_type = _get_media_type(msg)
@@ -874,8 +934,24 @@ class CloneEngine:
             job_id=self.job_id
         )
         try:
-            result = await client.forward_messages(dest_peer, msg)
-            dest_id = result.id if result else None
+            if dest_topic_id:
+                result = await client(ForwardMessagesRequest(
+                    from_peer=msg.peer_id,
+                    id=[msg.id],
+                    to_peer=dest_peer,
+                    top_msg_id=dest_topic_id,
+                    random_id=[random.randrange(-2**63, 2**63)],
+                ))
+                # Extract dest message id from updates
+                dest_id = None
+                if result and hasattr(result, 'updates'):
+                    for upd in result.updates:
+                        if hasattr(upd, 'message') and hasattr(upd.message, 'id'):
+                            dest_id = upd.message.id
+                            break
+            else:
+                result = await client.forward_messages(dest_peer, msg)
+                dest_id = result.id if result else None
             await self._save_item(db, job, msg, "success", dest_msg_id=dest_id)
             await self._update_progress(db, job, "success")
         except Exception as e:
@@ -884,14 +960,35 @@ class CloneEngine:
             await self._update_progress(db, job, "error")
             await log(db, "error", f"Erro ao encaminhar msg {msg.id}: {error_str}", job_id=self.job_id)
 
-    async def _forward_album(self, client, job, album, dest_peer, db):
+    async def _forward_album(self, client, job, album, dest_peer, db, dest_topic_id=None):
         """Forward an album (grouped messages)."""
         try:
-            results = await client.forward_messages(dest_peer, album)
-            for msg_item, result in zip(album, results if isinstance(results, list) else [results]):
-                dest_id = result.id if result else None
-                await self._save_item(db, job, msg_item, "success", dest_msg_id=dest_id)
-                await self._update_progress(db, job, "success")
+            if dest_topic_id:
+                msg_ids = [m.id for m in album]
+                random_ids = [random.randrange(-2**63, 2**63) for _ in msg_ids]
+                result = await client(ForwardMessagesRequest(
+                    from_peer=album[0].peer_id,
+                    id=msg_ids,
+                    to_peer=dest_peer,
+                    top_msg_id=dest_topic_id,
+                    random_id=random_ids,
+                ))
+                # Extract dest message ids from updates
+                dest_ids = []
+                if result and hasattr(result, 'updates'):
+                    for upd in result.updates:
+                        if hasattr(upd, 'message') and hasattr(upd.message, 'id'):
+                            dest_ids.append(upd.message.id)
+                for idx, msg_item in enumerate(album):
+                    dest_id = dest_ids[idx] if idx < len(dest_ids) else None
+                    await self._save_item(db, job, msg_item, "success", dest_msg_id=dest_id)
+                    await self._update_progress(db, job, "success")
+            else:
+                results = await client.forward_messages(dest_peer, album)
+                for msg_item, result in zip(album, results if isinstance(results, list) else [results]):
+                    dest_id = result.id if result else None
+                    await self._save_item(db, job, msg_item, "success", dest_msg_id=dest_id)
+                    await self._update_progress(db, job, "success")
         except Exception as e:
             error_str = str(e)
             for msg_item in album:
@@ -1130,6 +1227,7 @@ class CloneEngine:
             return
 
         # Upload
+        thumb_path = None
         try:
             file_size_mb = os.path.getsize(downloaded) // (1024 * 1024) if os.path.exists(downloaded) else 0
             await log(db, "info",
@@ -1137,6 +1235,22 @@ class CloneEngine:
                 job_id=self.job_id
             )
             caption = _process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text) or ""
+
+            # Preserve original media attributes (resolution, streaming, etc.)
+            send_kwargs = _get_send_kwargs(msg)
+
+            # Download thumbnail for videos to avoid black preview
+            if media_type in ("video", "video_note") and isinstance(msg.media, MessageMediaDocument):
+                try:
+                    thumb_path = os.path.join(temp_dir, f"thumb_{msg.id}.jpg")
+                    thumb_dl = await client.download_media(msg, file=thumb_path, thumb=-1)
+                    if thumb_dl and os.path.exists(thumb_dl):
+                        send_kwargs["thumb"] = thumb_dl
+                        thumb_path = thumb_dl
+                    else:
+                        thumb_path = None
+                except Exception:
+                    thumb_path = None
 
             # Progress callback for upload — uses separate db session
             ul_start_time = [time.time()]
@@ -1178,6 +1292,7 @@ class CloneEngine:
                     uploaded,
                     caption=caption,
                     force_document=media_type == "document",
+                    **send_kwargs,
                 )
             else:
                 result = await client.send_file(
@@ -1186,6 +1301,7 @@ class CloneEngine:
                     caption=caption,
                     force_document=media_type == "document",
                     progress_callback=ul_progress if file_size_mb > 10 else None,
+                    **send_kwargs,
                 )
             await self._save_item(db, job, msg, "success", dest_msg_id=result.id)
             await self._update_progress(db, job, "success")
@@ -1200,10 +1316,15 @@ class CloneEngine:
             await self._update_progress(db, job, "error")
             await log(db, "error", f"[{progress}/{job.total_messages}] Erro ao enviar msg {msg.id}: {str(e)}", job_id=self.job_id)
         finally:
-            # Remove temp file
+            # Remove temp files
             if downloaded and os.path.exists(downloaded):
                 try:
                     os.remove(downloaded)
+                except OSError:
+                    pass
+            if thumb_path and os.path.exists(thumb_path):
+                try:
+                    os.remove(thumb_path)
                 except OSError:
                     pass
 
@@ -1260,11 +1381,18 @@ class CloneEngine:
                 f"[{progress}/{job.total_messages}] ⬆ Enviando álbum ({len(files)} arquivos) para o destino...",
                 job_id=self.job_id
             )
+            # Check if album contains videos for streaming support
+            has_video = any(
+                _get_media_type(m) in ("video", "video_note")
+                for m in album if m not in skipped_msgs
+            )
+
             # Only first caption is shown in album
             results = await client.send_file(
                 dest_peer,
                 files,
                 caption=captions[0] if captions else "",
+                supports_streaming=has_video,
             )
 
             # Match results to original messages
