@@ -22,6 +22,8 @@ from telethon.tl.types import (
     DocumentAttributeFilename,
     DocumentAttributeAudio,
     DocumentAttributeVideo,
+    InputMediaUploadedDocument,
+    InputMediaUploadedPhoto,
     Channel,
 )
 from telethon.tl.functions.messages import GetForumTopicsRequest, CreateForumTopicRequest, ForwardMessagesRequest
@@ -180,11 +182,76 @@ def _get_send_kwargs(message):
             kwargs["supports_streaming"] = True
             break
 
-    # Preserve thumbnail — Telethon can accept the raw thumb bytes
-    if doc.thumbs:
-        kwargs["thumb"] = None  # Will be set during download if possible
-
     return kwargs
+
+
+async def _build_album_media(client, msg_file_pairs, temp_dir):
+    """Build InputMedia list for album with preserved attributes and thumbnails.
+
+    Args:
+        client: TelegramClient instance
+        msg_file_pairs: list of (original_message, downloaded_file_path)
+        temp_dir: directory for temporary thumbnail files
+
+    Returns:
+        (media_list, thumb_files) — InputMedia objects and thumb paths to clean up
+    """
+    media_list = []
+    thumb_files = []
+
+    for msg, file_path in msg_file_pairs:
+        media = msg.media
+        uploaded = await client.upload_file(file_path)
+
+        # Photos — preserve spoiler flag
+        if isinstance(media, MessageMediaPhoto):
+            spoiler = getattr(media, 'spoiler', False)
+            media_list.append(InputMediaUploadedPhoto(
+                file=uploaded,
+                spoiler=spoiler,
+            ))
+            continue
+
+        # Documents (video, audio, files, etc.) — preserve attributes + thumb + flags
+        if isinstance(media, MessageMediaDocument) and media.document:
+            doc = media.document
+            spoiler = getattr(media, 'spoiler', False)
+
+            # Download + upload thumbnail for any doc that has one
+            # (video preview, audio album art, document preview)
+            uploaded_thumb = None
+            if doc.thumbs:
+                try:
+                    tp = os.path.join(temp_dir, f"athumb_{msg.id}.jpg")
+                    td = await client.download_media(msg, file=tp, thumb=-1)
+                    if td and os.path.exists(td):
+                        uploaded_thumb = await client.upload_file(td)
+                        thumb_files.append(td)
+                except Exception:
+                    pass
+
+            # Detect nosound flag (GIF-like videos)
+            nosound = False
+            for attr in (doc.attributes or []):
+                if isinstance(attr, DocumentAttributeVideo):
+                    nosound = getattr(attr, 'nosound', False)
+                    break
+
+            media_list.append(InputMediaUploadedDocument(
+                file=uploaded,
+                mime_type=doc.mime_type,
+                attributes=doc.attributes or [],
+                thumb=uploaded_thumb,
+                force_file=False,
+                nosound_video=nosound,
+                spoiler=spoiler,
+            ))
+            continue
+
+        # Fallback — let Telethon handle it
+        media_list.append(file_path)
+
+    return media_list, thumb_files
 
 
 class CloneEngine:
@@ -694,8 +761,8 @@ class CloneEngine:
             # Preserve original media attributes (resolution, streaming, etc.)
             send_kwargs = _get_send_kwargs(msg)
 
-            # Download thumbnail for videos to avoid black preview
-            if media_type in ("video", "video_note") and isinstance(msg.media, MessageMediaDocument):
+            # Download thumbnail for any document with thumbs (video, audio art, doc preview)
+            if isinstance(msg.media, MessageMediaDocument) and msg.media.document and msg.media.document.thumbs:
                 try:
                     thumb_path = os.path.join(temp_dir, f"thumb_{msg.id}.jpg")
                     thumb_dl = await client.download_media(msg, file=thumb_path, thumb=-1)
@@ -744,6 +811,7 @@ class CloneEngine:
         files = []
         captions = []
         skipped_msgs = []
+        downloaded_msgs = []  # track messages for attribute preservation
 
         for msg in album:
             media_size = _get_media_size(msg)
@@ -760,6 +828,7 @@ class CloneEngine:
                 if downloaded:
                     files.append(downloaded)
                     captions.append(_process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text) or "")
+                    downloaded_msgs.append(msg)
                 else:
                     await self._save_item(db, job, msg, "error", error_msg="Download falhou")
                     await self._update_progress(db, job, "error")
@@ -774,17 +843,17 @@ class CloneEngine:
         if not files:
             return
 
+        # Send with preserved attributes and thumbnails
+        thumb_files = []
         try:
-            # Check if album contains videos for streaming support
-            has_video = any(
-                _get_media_type(m) in ("video", "video_note")
-                for m in album if m not in skipped_msgs
-            )
+            # Build InputMedia objects with original attributes, dimensions, and thumbnails
+            msg_file_pairs = list(zip(downloaded_msgs, files))
+            media_list, thumb_files = await _build_album_media(client, msg_file_pairs, temp_dir)
 
             results = await client.send_file(
-                dest_peer, files, caption=captions[0] if captions else "",
+                dest_peer, media_list,
+                caption=captions,
                 reply_to=reply_to,
-                supports_streaming=has_video,
             )
             success_msgs = [m for m in album if m not in skipped_msgs]
             if not isinstance(results, list):
@@ -804,6 +873,12 @@ class CloneEngine:
                 await self._update_progress(db, job, "error")
         finally:
             for f in files:
+                if os.path.exists(f):
+                    try:
+                        os.remove(f)
+                    except OSError:
+                        pass
+            for f in thumb_files:
                 if os.path.exists(f):
                     try:
                         os.remove(f)
@@ -1239,8 +1314,8 @@ class CloneEngine:
             # Preserve original media attributes (resolution, streaming, etc.)
             send_kwargs = _get_send_kwargs(msg)
 
-            # Download thumbnail for videos to avoid black preview
-            if media_type in ("video", "video_note") and isinstance(msg.media, MessageMediaDocument):
+            # Download thumbnail for any document with thumbs (video, audio art, doc preview)
+            if isinstance(msg.media, MessageMediaDocument) and msg.media.document and msg.media.document.thumbs:
                 try:
                     thumb_path = os.path.join(temp_dir, f"thumb_{msg.id}.jpg")
                     thumb_dl = await client.download_media(msg, file=thumb_path, thumb=-1)
@@ -1339,6 +1414,7 @@ class CloneEngine:
         files = []
         captions = []
         skipped_msgs = []
+        downloaded_msgs = []  # track messages for attribute preservation
 
         for msg in album:
             media_size = _get_media_size(msg)
@@ -1361,6 +1437,7 @@ class CloneEngine:
                 if downloaded:
                     files.append(downloaded)
                     captions.append(_process_content(msg.text, job.content_mode, job.link_replace_url, job.mention_replace_text) or "")
+                    downloaded_msgs.append(msg)
                 else:
                     await self._save_item(db, job, msg, "error", error_msg="Download falhou")
                     await self._update_progress(db, job, "error")
@@ -1375,24 +1452,22 @@ class CloneEngine:
         if not files:
             return
 
-        # Send as album
+        # Send as album with preserved attributes and thumbnails
+        thumb_files = []
         try:
             await log(db, "info",
                 f"[{progress}/{job.total_messages}] ⬆ Enviando álbum ({len(files)} arquivos) para o destino...",
                 job_id=self.job_id
             )
-            # Check if album contains videos for streaming support
-            has_video = any(
-                _get_media_type(m) in ("video", "video_note")
-                for m in album if m not in skipped_msgs
-            )
 
-            # Only first caption is shown in album
+            # Build InputMedia objects with original attributes, dimensions, and thumbnails
+            msg_file_pairs = list(zip(downloaded_msgs, files))
+            media_list, thumb_files = await _build_album_media(client, msg_file_pairs, temp_dir)
+
             results = await client.send_file(
                 dest_peer,
-                files,
-                caption=captions[0] if captions else "",
-                supports_streaming=has_video,
+                media_list,
+                caption=captions,
             )
 
             # Match results to original messages
@@ -1430,6 +1505,12 @@ class CloneEngine:
         finally:
             # Clean up temp files
             for f in files:
+                if os.path.exists(f):
+                    try:
+                        os.remove(f)
+                    except OSError:
+                        pass
+            for f in thumb_files:
                 if os.path.exists(f):
                     try:
                         os.remove(f)
