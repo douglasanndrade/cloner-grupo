@@ -107,6 +107,28 @@ def _is_connection_error(e: Exception) -> bool:
     return any(kw in msg for kw in _DISCONNECT_KEYWORDS)
 
 
+def _is_file_ref_error(e: Exception) -> bool:
+    """Check if an exception is a file reference expired error."""
+    msg = str(e).lower()
+    return "file reference" in msg or "FILE_REFERENCE_EXPIRED" in str(e)
+
+
+async def _refresh_message(client, peer, msg):
+    """Re-fetch a message to get a fresh file reference.
+
+    When messages are collected in bulk and processed later, the file reference
+    can expire (Telegram invalidates them after some time). Re-fetching the
+    message by ID returns a fresh copy with valid file references.
+    """
+    try:
+        refreshed = await client.get_messages(peer, ids=msg.id)
+        if refreshed:
+            return refreshed
+    except Exception:
+        pass
+    return msg
+
+
 def _get_media_type(message) -> str | None:
     """Extract media type string from a Telethon message."""
     media = message.media
@@ -632,7 +654,7 @@ class CloneEngine:
             if job.mode == "forward":
                 await self._run_forward_topic(client, job, messages, dest_peer, dest_topic_id, db)
             else:
-                await self._run_reupload_topic(client, job, messages, dest_peer, dest_topic_id, size_limit, db)
+                await self._run_reupload_topic(client, job, messages, source_peer, dest_peer, dest_topic_id, size_limit, db)
 
         # Handle General if it's separate
         if 1 in topic_messages and 1 not in topic_ids_set:
@@ -645,7 +667,7 @@ class CloneEngine:
                 if job.mode == "forward":
                     await self._run_forward_topic(client, job, messages, dest_peer, None, db)
                 else:
-                    await self._run_reupload_topic(client, job, messages, dest_peer, None, size_limit, db)
+                    await self._run_reupload_topic(client, job, messages, source_peer, dest_peer, None, size_limit, db)
 
     async def _run_forward_topic(self, client, job, messages, dest_peer, dest_topic_id, db):
         """Forward messages for a specific topic."""
@@ -676,7 +698,7 @@ class CloneEngine:
             await asyncio.sleep(job.send_interval_ms / 1000)
             i += 1
 
-    async def _run_reupload_topic(self, client, job, messages, dest_peer, dest_topic_id, size_limit, db):
+    async def _run_reupload_topic(self, client, job, messages, source_peer, dest_peer, dest_topic_id, size_limit, db):
         """Reupload messages for a specific topic."""
         temp_dir = os.path.join(settings.temp_dir, f"job_{job.id}")
         os.makedirs(temp_dir, exist_ok=True)
@@ -687,10 +709,15 @@ class CloneEngine:
                 return
             msg = messages[i]
             try:
+                # Refresh file reference before download to avoid expired refs
+                msg = await _refresh_message(client, source_peer, msg)
+                messages[i] = msg
+
                 if msg.grouped_id:
                     album = [msg]
                     while i + 1 < len(messages) and messages[i + 1].grouped_id == msg.grouped_id:
                         i += 1
+                        messages[i] = await _refresh_message(client, source_peer, messages[i])
                         album.append(messages[i])
                     await self._reupload_album_topic(client, job, album, dest_peer, dest_topic_id, size_limit, temp_dir, db)
                 else:
@@ -1106,11 +1133,16 @@ class CloneEngine:
                 msg = messages[i]
 
                 try:
+                    # Refresh file reference before download to avoid expired refs
+                    msg = await _refresh_message(client, source_peer, msg)
+                    messages[i] = msg
+
                     # Collect album group
                     if msg.grouped_id:
                         album = [msg]
                         while i + 1 < len(messages) and messages[i + 1].grouped_id == msg.grouped_id:
                             i += 1
+                            messages[i] = await _refresh_message(client, source_peer, messages[i])
                             album.append(messages[i])
 
                         await self._reupload_album(client, job, album, dest_peer, size_limit, temp_dir, db)
@@ -1131,6 +1163,7 @@ class CloneEngine:
                             source_entity = await db.get(TelegramEntity, job.source_entity_id)
                             dest_entity = await db.get(TelegramEntity, job.destination_entity_id)
                             dest_peer = await self._resolve_peer(client, dest_entity.telegram_id)
+                            source_peer = await self._resolve_peer(client, source_entity.telegram_id)
                             # Retry current message — don't increment i
                             continue
                         else:
